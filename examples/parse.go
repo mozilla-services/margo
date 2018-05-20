@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
 
 	"go.mozilla.org/mar"
 )
 
 func main() {
 	var file mar.File
-	input, err := ioutil.ReadFile("firefox-61.0a1.en-US.linux-x86_64.complete.mar")
+	input, err := ioutil.ReadFile(os.Args[1])
 	if err != nil {
 		log.Fatal("Error while opening fd", err)
 	}
