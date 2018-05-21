@@ -2,6 +2,7 @@ package mar // import "go.mozilla.org/mar"
 
 import (
 	"bytes"
+	"crypto/rsa"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -31,8 +32,8 @@ const (
 	// Optional additional sections can be added, their number is stored on 4 bytes
 	AdditionalSectionsHeaderLen = 4
 
-	// AdditionalSectionsEntryHeaderLen is the length of the header of each add. section
-	// Each additional section has a block size and block identifier on 4 bytes each
+	// AdditionalSectionsEntryHeaderLen is the length of the header of each
+	// additional section, containing a block size and identifier on 4 bytes each
 	AdditionalSectionsEntryHeaderLen = 8
 
 	// IndexHeaderLen is the length of the index header
@@ -41,7 +42,8 @@ const (
 
 	// IndexEntryHeaderLen is the length of the header of each index entry.
 	// Each index entry contains a header with an offset to content (relative to
-	// the beginning of the file), a content size and permission flags, each on 4 bytes
+	// the beginning of the file), a content size and permission flags,
+	// each on 4 bytes
 	IndexEntryHeaderLen = 12
 
 	// SigAlgRsaPkcs1Sha1 is the ID of a signature of type RSA-PKCS1-SHA1
@@ -50,7 +52,8 @@ const (
 	// SigAlgRsaPkcs1Sha384 is the ID of a signature of type RSA-PKCS1-SHA384
 	SigAlgRsaPkcs1Sha384 = 2
 
-	// BlockIDProductInfo is the ID of a Product Information Block in additional sections
+	// BlockIDProductInfo is the ID of a Product Information Block
+	// in additional sections
 	BlockIDProductInfo = 1
 )
 
@@ -70,66 +73,90 @@ type File struct {
 
 // SignaturesHeader contains the total file size and number of signatures in the MAR file
 type SignaturesHeader struct {
-	FileSize      uint64 `json:"file_size" yaml:"file_size"`
+	// FileSize is the total size of the MAR file in bytes
+	FileSize uint64 `json:"file_size" yaml:"file_size"`
+	// NumSignatures is the count of signatures
 	NumSignatures uint32 `json:"num_signatures" yaml:"num_signatures"`
 }
 
 // Signature is a single signature on the MAR file
 type Signature struct {
 	SignatureEntryHeader
+	// Algorithm is a string that represents the signing algorithm name
 	Algorithm string `json:"algorithm" yaml:"algorithm"`
-	Data      []byte `json:"data" yaml:"data"`
+	// Data is the signature bytes
+	Data []byte `json:"data" yaml:"data"`
+
+	// privateKey is a RSA private key used for signing the MAR file
+	privateKey *rsa.PrivateKey
 }
 
 // SignatureEntryHeader is the header of each signature entry that
 // contains the Algorithm ID and Size
 type SignatureEntryHeader struct {
+	// AlgorithmID is either SigAlgRsaPkcs1Sha1 (1) or SigAlgRsaPkcs1Sha384 (2)
 	AlgorithmID uint32 `json:"algorithm_id" yaml:"algorithm_id"`
-	Size        uint32 `json:"size" yaml:"size"`
+	// Size is the size of the signature data in bytes
+	Size uint32 `json:"size" yaml:"size"`
 }
 
 // AdditionalSectionsHeader contains the number of additional sections in the MAR file
 type AdditionalSectionsHeader struct {
+	// NumAdditionalSections is the count of additional sections
 	NumAdditionalSections uint32 `json:"num_additional_sections" yaml:"num_additional_sections"`
 }
 
 // AdditionalSection is a single additional section on the MAR file
 type AdditionalSection struct {
 	AdditionalSectionEntryHeader
+	// Data contains the additional section data
 	Data []byte `json:"data" yaml:"data"`
 }
 
 // AdditionalSectionEntryHeader is the header of each additional section
 // that contains the block size and ID
 type AdditionalSectionEntryHeader struct {
+	// BlockSize is the size of the additional section in bytes, including
+	// the header and the following data. You need to substract the header length
+	// to parse just the data..
 	BlockSize uint32 `json:"block_size" yaml:"block_size"`
-	BlockID   uint32 `json:"block_id" yaml:"block_id"`
+	// BlockID is the identifier of the block.
+	// BlockIDProductInfo (1) for Product Information
+	BlockID uint32 `json:"block_id" yaml:"block_id"`
 }
 
 // Entry is a single file entry in the MAR file. If IsCompressed is true, the content
 // is compressed with xz
 type Entry struct {
-	Data         []byte `json:"data" yaml:"data"`
-	IsCompressed bool   `json:"is_compressed" yaml:"is_compressed"`
+	// Data contains the raw data of the entry. It may still be compressed.
+	Data []byte `json:"data" yaml:"data"`
+	// IsCompressed is set to true if the Data is compressed with xz
+	IsCompressed bool `json:"is_compressed" yaml:"is_compressed"`
 }
 
 // IndexHeader is the size of the index section of the MAR file, in bytes
 type IndexHeader struct {
+	// Size is the size of the index, in bytes
 	Size uint32 `json:"size" yaml:"size"`
 }
 
 // IndexEntry is a single index entry in the MAR index
 type IndexEntry struct {
 	IndexEntryHeader
+	// Filename is the name of the file being indexed
 	FileName string `json:"file_name" yaml:"file_name"`
 }
 
 // IndexEntryHeader is the header of each index entry
 // that contains the offset to content, size and flags
 type IndexEntryHeader struct {
+	// OffsetToContent is the position in bytes of the entry data relative
+	// to the start of the MAR file
 	OffsetToContent uint32 `json:"offset_to_content" yaml:"offset_to_content"`
-	Size            uint32 `json:"size" yaml:"size"`
-	Flags           uint32 `json:"flags" yaml:"flags"`
+	// Size is the size of the data in bytes
+	Size uint32 `json:"size" yaml:"size"`
+	// Flags is the file permission bits in standard unix-style format
+	Flags uint32 `json:"flags" yaml:"flags"`
 }
 
 // Unmarshal takes an unparsed MAR file as input and parses it into a File struct
@@ -312,8 +339,8 @@ func Unmarshal(input []byte, file *File) error {
 	return nil
 }
 
-// MarshalForSignature returns an []byte of the data to be signed, or verified
-func (file *File) MarshalForSignature() ([]byte, error) {
+// Marshal returns an []byte of the marshalled MAR file
+func (file *File) Marshal() ([]byte, error) {
 	// the total size of a signature block is the original file minus the signature data
 	var sigDataSize uint32
 	for _, sig := range file.Signatures {
