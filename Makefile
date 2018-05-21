@@ -1,4 +1,4 @@
-all: lint vet test getkeys getsamplemar runparser
+all: lint vet test getkeys getsamplemar testparser
 
 lint:
 	golint go.mozilla.org/mar
@@ -18,5 +18,6 @@ getsamplemar:
 		wget http://download.cdn.mozilla.net/pub/firefox/releases/60.0.1esr/update/win64/en-US/firefox-60.0esr-60.0.1esr.partial.mar ;\
 	fi
 
-runparser:
-	go run examples/parse.go firefox-60.0esr-60.0.1esr.partial.mar
+testparser:
+	go run examples/parse.go firefox-60.0esr-60.0.1esr.partial.mar 2>&1 | grep 'Signature: OK, valid signature from release1_sha384'
+
