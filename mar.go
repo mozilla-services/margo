@@ -76,12 +76,14 @@ type SignaturesHeader struct {
 
 // Signature is a single signature on the MAR file
 type Signature struct {
-	signatureEntryHeader
+	SignatureEntryHeader
 	Algorithm string `json:"algorithm" yaml:"algorithm"`
 	Data      []byte `json:"data" yaml:"data"`
 }
 
-type signatureEntryHeader struct {
+// SignatureEntryHeader is the header of each signature entry that
+// contains the Algorithm ID and Size
+type SignatureEntryHeader struct {
 	AlgorithmID uint32 `json:"algorithm_id" yaml:"algorithm_id"`
 	Size        uint32 `json:"size" yaml:"size"`
 }
@@ -93,11 +95,13 @@ type AdditionalSectionsHeader struct {
 
 // AdditionalSection is a single additional section on the MAR file
 type AdditionalSection struct {
-	additionalSectionEntryHeader
+	AdditionalSectionEntryHeader
 	Data []byte `json:"data" yaml:"data"`
 }
 
-type additionalSectionEntryHeader struct {
+// AdditionalSectionEntryHeader is the header of each additional section
+// that contains the block size and ID
+type AdditionalSectionEntryHeader struct {
 	BlockSize uint32 `json:"block_size" yaml:"block_size"`
 	BlockID   uint32 `json:"block_id" yaml:"block_id"`
 }
@@ -116,11 +120,13 @@ type IndexHeader struct {
 
 // IndexEntry is a single index entry in the MAR index
 type IndexEntry struct {
-	indexEntryHeader
+	IndexEntryHeader
 	FileName string `json:"file_name" yaml:"file_name"`
 }
 
-type indexEntryHeader struct {
+// IndexEntryHeader is the header of each index entry
+// that contains the offset to content, size and flags
+type IndexEntryHeader struct {
 	OffsetToContent uint32 `json:"offset_to_content" yaml:"offset_to_content"`
 	Size            uint32 `json:"size" yaml:"size"`
 	Flags           uint32 `json:"flags" yaml:"flags"`
@@ -167,7 +173,7 @@ func Unmarshal(input []byte, file *File) error {
 	// Parse each signature and append them to the File
 	for i = 0; i < file.SignaturesHeader.NumSignatures; i++ {
 		var (
-			sigEntryHeader signatureEntryHeader
+			sigEntryHeader SignatureEntryHeader
 			sig            Signature
 		)
 
@@ -211,7 +217,7 @@ func Unmarshal(input []byte, file *File) error {
 	// Parse each additional section and append them to the File
 	for i = 0; i < file.AdditionalSectionsHeader.NumAdditionalSections; i++ {
 		var (
-			ash     additionalSectionEntryHeader
+			ash     AdditionalSectionEntryHeader
 			as      AdditionalSection
 			blockid string
 		)
@@ -259,7 +265,7 @@ func Unmarshal(input []byte, file *File) error {
 
 	for i = 0; ; i++ {
 		var (
-			idxEntryHeader indexEntryHeader
+			idxEntryHeader IndexEntryHeader
 			idxEntry       IndexEntry
 		)
 		if cursor >= int(file.SignaturesHeader.FileSize) {
