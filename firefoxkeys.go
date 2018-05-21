@@ -1,7 +1,7 @@
-package mar // import "go.mozilla.org/mar"
+package mar
 
-// FirefoxReleasePublicKeys contains a map of all active Firefox release keys
-// this is automatically generated and should not be edited by hand
+// FirefoxReleasePublicKeys contains a map of PEM encoded public keys used to verify
+// signatures on MAR files. This map is automatically generated, do not edit it by hand!
 var FirefoxReleasePublicKeys = map[string]string{
 	// From https://hg.mozilla.org/mozilla-central/raw-file/92f6879a8f9fc7e727d7c281c9fa9f538cb96cb5/toolkit/mozapps/update/updater/release_primary.der
 	"release1_sha384": `-----BEGIN PUBLIC KEY-----
