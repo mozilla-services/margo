@@ -2,5 +2,7 @@ dist: trusty
 language: go
 go: '1.10'
 go_import_path: go.mozilla.org/mar
+before_install:
+- go get github.com/golang/lint/golint
 script:
 - make
