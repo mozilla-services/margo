@@ -56,66 +56,74 @@ const (
 
 // File is a parsed MAR file.
 type File struct {
-	MarID                    string                   `json:"mar_id",yaml:"mar_id"`
-	OffsetToIndex            uint32                   `json:"offset_to_index",yaml:"offset_to_index"`
-	ProductInformation       string                   `json:"product_information,omitempty",yaml:"product_information,omitempty"`
-	SignaturesHeader         SignaturesHeader         `json:"signature_header",yaml:"signature_header"`
-	Signatures               []Signature              `json:"signatures",yaml:"signatures"`
-	AdditionalSectionsHeader AdditionalSectionsHeader `json:"additional_sections_header",yaml:"additional_sections_header"`
-	AdditionalSections       []AdditionalSection      `json:"additional_sections",yaml:"additional_sections"`
-	IndexHeader              IndexHeader              `json:"index_header",yaml:"index_header"`
-	Index                    []IndexEntry             `json:"index",yaml:"index"`
-	Content                  map[string]Entry         `json:"content",yaml:"content"`
+	MarID                    string                   `json:"mar_id" yaml:"mar_id"`
+	OffsetToIndex            uint32                   `json:"offset_to_index" yaml:"offset_to_index"`
+	ProductInformation       string                   `json:"product_information,omitempty" yaml:"product_information,omitempty"`
+	SignaturesHeader         SignaturesHeader         `json:"signature_header" yaml:"signature_header"`
+	Signatures               []Signature              `json:"signatures" yaml:"signatures"`
+	AdditionalSectionsHeader AdditionalSectionsHeader `json:"additional_sections_header" yaml:"additional_sections_header"`
+	AdditionalSections       []AdditionalSection      `json:"additional_sections" yaml:"additional_sections"`
+	IndexHeader              IndexHeader              `json:"index_header" yaml:"index_header"`
+	Index                    []IndexEntry             `json:"index" yaml:"index"`
+	Content                  map[string]Entry         `json:"content" yaml:"content"`
 }
 
+// SignaturesHeader contains the total file size and number of signatures in the MAR file
 type SignaturesHeader struct {
-	FileSize      uint64 `json:"file_size",yaml:"file_size"`
-	NumSignatures uint32 `json:"num_signatures",yaml:"num_signatures"`
+	FileSize      uint64 `json:"file_size" yaml:"file_size"`
+	NumSignatures uint32 `json:"num_signatures" yaml:"num_signatures"`
 }
 
+// Signature is a single signature on the MAR file
 type Signature struct {
-	SignatureEntryHeader
-	Algorithm string `json:"algorithm",yaml:"algorithm"`
-	Data      []byte `json:"data",yaml:"data"`
+	signatureEntryHeader
+	Algorithm string `json:"algorithm" yaml:"algorithm"`
+	Data      []byte `json:"data" yaml:"data"`
 }
 
-type SignatureEntryHeader struct {
-	AlgorithmID uint32 `json:"algorithm_id",yaml:"algorithm_id"`
-	Size        uint32 `json:"size",yaml:"size"`
+type signatureEntryHeader struct {
+	AlgorithmID uint32 `json:"algorithm_id" yaml:"algorithm_id"`
+	Size        uint32 `json:"size" yaml:"size"`
 }
 
+// AdditionalSectionsHeader contains the number of additional sections in the MAR file
 type AdditionalSectionsHeader struct {
-	NumAdditionalSections uint32 `json:"num_additional_sections",yaml:"num_additional_sections"`
+	NumAdditionalSections uint32 `json:"num_additional_sections" yaml:"num_additional_sections"`
 }
 
+// AdditionalSection is a single additional section on the MAR file
 type AdditionalSection struct {
-	AdditionalSectionEntryHeader
-	Data []byte `json:"data",yaml:"data"`
+	additionalSectionEntryHeader
+	Data []byte `json:"data" yaml:"data"`
 }
 
-type AdditionalSectionEntryHeader struct {
-	BlockSize uint32 `json:"block_size",yaml:"block_size"`
-	BlockID   uint32 `json:"block_id",yaml:"block_id"`
+type additionalSectionEntryHeader struct {
+	BlockSize uint32 `json:"block_size" yaml:"block_size"`
+	BlockID   uint32 `json:"block_id" yaml:"block_id"`
 }
 
+// Entry is a single file entry in the MAR file. If IsCompressed is true, the content
+// is compressed with xz
 type Entry struct {
-	Data         []byte `json:"data",yaml:"data"`
-	IsCompressed bool   `json:"is_compressed",yaml:"is_compressed"`
+	Data         []byte `json:"data" yaml:"data"`
+	IsCompressed bool   `json:"is_compressed" yaml:"is_compressed"`
 }
 
+// IndexHeader is the size of the index section of the MAR file, in bytes
 type IndexHeader struct {
-	Size uint32 `json:"size",yaml:"size"`
+	Size uint32 `json:"size" yaml:"size"`
 }
 
+// IndexEntry is a single index entry in the MAR index
 type IndexEntry struct {
-	IndexEntryHeader
-	FileName string `json:"file_name",yaml:"file_name"`
+	indexEntryHeader
+	FileName string `json:"file_name" yaml:"file_name"`
 }
 
-type IndexEntryHeader struct {
-	OffsetToContent uint32 `json:"offset_to_content",yaml:"offset_to_content"`
-	Size            uint32 `json:"size",yaml:"size"`
-	Flags           uint32 `json:"flags",yaml:"flags"`
+type indexEntryHeader struct {
+	OffsetToContent uint32 `json:"offset_to_content" yaml:"offset_to_content"`
+	Size            uint32 `json:"size" yaml:"size"`
+	Flags           uint32 `json:"flags" yaml:"flags"`
 }
 
 // Unmarshal takes an unparsed MAR file as input and parses it into a File struct
@@ -159,7 +167,7 @@ func Unmarshal(input []byte, file *File) error {
 	// Parse each signature and append them to the File
 	for i = 0; i < file.SignaturesHeader.NumSignatures; i++ {
 		var (
-			sigEntryHeader SignatureEntryHeader
+			sigEntryHeader signatureEntryHeader
 			sig            Signature
 		)
 
@@ -177,7 +185,7 @@ func Unmarshal(input []byte, file *File) error {
 		case SigAlgRsaPkcs1Sha384:
 			sig.Algorithm = "RSA-PKCS1-SHA384"
 		default:
-			sig.Algorithm = fmt.Sprintf("unknown", sig.AlgorithmID)
+			sig.Algorithm = "unknown"
 		}
 
 		fmt.Fprintf(os.Stderr, "* Signature %d Entry Header: Algorithm=%q, Size=%d\n", i, sig.Algorithm, sig.Size)
@@ -203,7 +211,7 @@ func Unmarshal(input []byte, file *File) error {
 	// Parse each additional section and append them to the File
 	for i = 0; i < file.AdditionalSectionsHeader.NumAdditionalSections; i++ {
 		var (
-			ash     AdditionalSectionEntryHeader
+			ash     additionalSectionEntryHeader
 			as      AdditionalSection
 			blockid string
 		)
@@ -251,7 +259,7 @@ func Unmarshal(input []byte, file *File) error {
 
 	for i = 0; ; i++ {
 		var (
-			idxEntryHeader IndexEntryHeader
+			idxEntryHeader indexEntryHeader
 			idxEntry       IndexEntry
 		)
 		if cursor >= int(file.SignaturesHeader.FileSize) {
