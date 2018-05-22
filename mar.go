@@ -5,7 +5,6 @@ import (
 	"crypto"
 	"encoding/binary"
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -68,7 +67,7 @@ type File struct {
 	AdditionalSections       []AdditionalSection      `json:"additional_sections" yaml:"additional_sections"`
 	IndexHeader              IndexHeader              `json:"index_header" yaml:"index_header"`
 	Index                    []IndexEntry             `json:"index" yaml:"index"`
-	Content                  map[string]Entry         `json:"content" yaml:"content"`
+	Content                  map[string]Entry         `json:"content" yaml:"-"`
 
 	// marshalForSignature is used to tell the marshaller to exclude
 	// signature data when preparing a file for signing
@@ -89,7 +88,7 @@ type Signature struct {
 	// Algorithm is a string that represents the signing algorithm name
 	Algorithm string `json:"algorithm" yaml:"algorithm"`
 	// Data is the signature bytes
-	Data []byte `json:"data" yaml:"data"`
+	Data []byte `json:"data" yaml:"-"`
 
 	// privateKey is a RSA private key used for signing the MAR file
 	privateKey crypto.PrivateKey
@@ -114,7 +113,7 @@ type AdditionalSectionsHeader struct {
 type AdditionalSection struct {
 	AdditionalSectionEntryHeader
 	// Data contains the additional section data
-	Data []byte `json:"data" yaml:"data"`
+	Data []byte `json:"data" yaml:"-"`
 }
 
 // AdditionalSectionEntryHeader is the header of each additional section
@@ -133,9 +132,9 @@ type AdditionalSectionEntryHeader struct {
 // is compressed with xz
 type Entry struct {
 	// Data contains the raw data of the entry. It may still be compressed.
-	Data []byte `json:"data" yaml:"data"`
+	Data []byte `json:"data" yaml:"-"`
 	// IsCompressed is set to true if the Data is compressed with xz
-	IsCompressed bool `json:"is_compressed" yaml:"is_compressed"`
+	IsCompressed bool `json:"is_compressed" yaml:"-"`
 }
 
 // IndexHeader is the size of the index section of the MAR file, in bytes
@@ -146,7 +145,7 @@ type IndexHeader struct {
 
 // IndexEntry is a single index entry in the MAR index
 type IndexEntry struct {
-	IndexEntryHeader
+	IndexEntryHeader `json:"index_entry" yaml:"index_entry"`
 	// Filename is the name of the file being indexed
 	FileName string `json:"file_name" yaml:"file_name"`
 }
@@ -191,15 +190,12 @@ func Unmarshal(input []byte, file *File) error {
 	}
 	cursor += OffsetToIndexLen
 
-	fmt.Fprintf(os.Stderr, "Header: MAR ID=%q, Offset to Index=%d\n", file.MarID, file.OffsetToIndex)
-
 	// Parse the Signature header
 	err = parse(input, &file.SignaturesHeader, cursor, SignaturesHeaderLen)
 	if err != nil {
 		return fmt.Errorf("parsing failed at position %d: %v", cursor, err)
 	}
 	cursor += SignaturesHeaderLen
-	fmt.Fprintf(os.Stderr, "\nSignatures Header: FileSize=%d, NumSignatures=%d\n", file.SignaturesHeader.FileSize, file.SignaturesHeader.NumSignatures)
 
 	// Parse each signature and append them to the File
 	for i = 0; i < file.SignaturesHeader.NumSignatures; i++ {
@@ -225,15 +221,12 @@ func Unmarshal(input []byte, file *File) error {
 			sig.Algorithm = "unknown"
 		}
 
-		fmt.Fprintf(os.Stderr, "* Signature %d Entry Header: Algorithm=%q, Size=%d\n", i, sig.Algorithm, sig.Size)
-
 		sig.Data = make([]byte, sig.Size, sig.Size)
 		err = parse(input, &sig.Data, cursor, int(sig.Size))
 		if err != nil {
 			return fmt.Errorf("parsing failed at position %d: %v", cursor, err)
 		}
 		cursor += int(sig.Size)
-		fmt.Fprintf(os.Stderr, "* Signature %d Data (len=%d): %X\n", i, len(sig.Data), sig.Data)
 		file.Signatures = append(file.Signatures, sig)
 	}
 
@@ -243,14 +236,12 @@ func Unmarshal(input []byte, file *File) error {
 		return fmt.Errorf("parsing failed at position %d: %v", cursor, err)
 	}
 	cursor += AdditionalSectionsHeaderLen
-	fmt.Fprintf(os.Stderr, "\nAdditional Sections: %d\n", file.AdditionalSectionsHeader.NumAdditionalSections)
 
 	// Parse each additional section and append them to the File
 	for i = 0; i < file.AdditionalSectionsHeader.NumAdditionalSections; i++ {
 		var (
-			ash     AdditionalSectionEntryHeader
-			as      AdditionalSection
-			blockid string
+			ash AdditionalSectionEntryHeader
+			as  AdditionalSection
 		)
 
 		err = parse(input, &ash, cursor, AdditionalSectionsEntryHeaderLen)
@@ -272,27 +263,20 @@ func Unmarshal(input []byte, file *File) error {
 
 		switch ash.BlockID {
 		case BlockIDProductInfo:
-			blockid = "Product Information"
 			// remove all the null bytes from the product info string
 			file.ProductInformation = fmt.Sprintf("%s", strings.Replace(strings.Trim(string(as.Data), "\x00"), "\x00", " ", -1))
-		default:
-			blockid = fmt.Sprintf("%d (unknown)", ash.BlockID)
 		}
-		fmt.Fprintf(os.Stderr, "* Additional Section %d: BlockSize=%d, BlockID=%q, Data=%q (len=%d)\n", i, ash.BlockSize, blockid, as.Data, dataSize)
 		file.AdditionalSections = append(file.AdditionalSections, as)
 	}
 
 	// Parse the index before parsing the content
 	cursor = int(file.OffsetToIndex)
-	fmt.Fprintf(os.Stderr, "\nJumping to index at offset %d\n", cursor)
 
 	err = parse(input, &file.IndexHeader, cursor, IndexHeaderLen)
 	if err != nil {
 		return fmt.Errorf("parsing failed at position %d: %v", cursor, err)
 	}
 	cursor += IndexHeaderLen
-
-	fmt.Fprintf(os.Stderr, "Index Size: %d\n", file.IndexHeader.Size)
 
 	for i = 0; ; i++ {
 		var (
@@ -319,8 +303,6 @@ func Unmarshal(input []byte, file *File) error {
 		idxEntry.FileName = string(input[cursor : cursor+endNamePos])
 		cursor += endNamePos + 1
 
-		fmt.Fprintf(os.Stderr, "* Index Entry %3d: Size=%10d Flags=%s Offset=%10d Name=%q\n",
-			i, idxEntry.Size, os.FileMode(idxEntry.Flags), idxEntry.OffsetToContent, idxEntry.FileName)
 		file.Index = append(file.Index, idxEntry)
 	}
 

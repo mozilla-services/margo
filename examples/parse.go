@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"go.mozilla.org/mar"
+	"gopkg.in/yaml.v2"
 )
 
 func main() {
@@ -20,6 +21,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	out, err := yaml.Marshal(file)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("%s\n", out)
 	validKeys, isSigned, err := file.VerifyAll()
 	if err != nil {
 		log.Fatal(err)
