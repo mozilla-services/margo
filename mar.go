@@ -69,6 +69,10 @@ type File struct {
 	IndexHeader              IndexHeader              `json:"index_header" yaml:"index_header"`
 	Index                    []IndexEntry             `json:"index" yaml:"index"`
 	Content                  map[string]Entry         `json:"content" yaml:"content"`
+
+	// marshalForSignature is used to tell the marshaller to exclude
+	// signature data when preparing a file for signing
+	marshalForSignature bool
 }
 
 // SignaturesHeader contains the total file size and number of signatures in the MAR file
@@ -339,16 +343,18 @@ func Unmarshal(input []byte, file *File) error {
 	return nil
 }
 
-// Marshal returns an []byte of the marshalled MAR file
+// Marshal returns an []byte of the marshalled MAR file that follows the
+// expected MAR binary format. It expects a properly constructed MAR object
+// with the index and content already in place. It also should already be
+// signed, as the output of this function can no longer be modified.
 func (file *File) Marshal() ([]byte, error) {
-	// the total size of a signature block is the original file minus the signature data
-	var sigDataSize uint32
-	for _, sig := range file.Signatures {
-		sigDataSize += sig.Size
-	}
-	output := make([]byte, file.SignaturesHeader.FileSize-uint64(sigDataSize))
-
+	var (
+		offsetToContent, sigSizes int
+		output                    []byte
+	)
 	buf := new(bytes.Buffer)
+
+	// Write the headers
 	err := binary.Write(buf, binary.BigEndian, []byte(file.MarID))
 	if err != nil {
 		return nil, err
@@ -361,6 +367,10 @@ func (file *File) Marshal() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// start the cursor after the first 3 headers
+	offsetToContent = MarIDLen + OffsetToIndexLen + SignaturesHeaderLen
+
+	// Write the signatures
 	for _, sig := range file.Signatures {
 		err = binary.Write(buf, binary.BigEndian, sig.AlgorithmID)
 		if err != nil {
@@ -370,11 +380,29 @@ func (file *File) Marshal() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		// If we're marshalling for signature, skip the actual signature data
+		// from the output, but count it in the total size and offsets
+		if file.marshalForSignature {
+			// reset the flag when the function exits
+			defer func() { file.marshalForSignature = false }()
+			// even though we're not writing the signature, we still need
+			// to account for its size in the offsets and total
+			sigSizes += int(sig.Size)
+		} else {
+			// if we're not preparing a signable block,
+			// include the signature data
+			_, err = buf.Write(sig.Data)
+			if err != nil {
+				return nil, err
+			}
+		}
+		offsetToContent += SignatureEntryHeaderLen + int(sig.Size)
 	}
 	err = binary.Write(buf, binary.BigEndian, file.AdditionalSectionsHeader)
 	if err != nil {
 		return nil, err
 	}
+	offsetToContent += AdditionalSectionsHeaderLen
 	for _, as := range file.AdditionalSections {
 		err = binary.Write(buf, binary.BigEndian, as.BlockSize)
 		if err != nil {
@@ -388,9 +416,8 @@ func (file *File) Marshal() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		offsetToContent += int(as.BlockSize)
 	}
-	// insert the first section at the beginning of the file
-	copy(output[0:buf.Len()], buf.Bytes())
 
 	// we need to marshal the content according to the index
 	idxBuf := new(bytes.Buffer)
@@ -399,7 +426,7 @@ func (file *File) Marshal() ([]byte, error) {
 		return nil, err
 	}
 	for _, idx := range file.Index {
-		err = binary.Write(idxBuf, binary.BigEndian, idx.OffsetToContent)
+		err = binary.Write(idxBuf, binary.BigEndian, uint32(offsetToContent))
 		if err != nil {
 			return nil, err
 		}
@@ -419,17 +446,39 @@ func (file *File) Marshal() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		// copy the content in the right position earlier in the file
-		// since we don't signatures, we remove their size from the offsets
-		copy(output[idx.OffsetToContent-sigDataSize:idx.OffsetToContent+idx.Size-sigDataSize], file.Content[idx.FileName].Data)
+		// copy the content to the main buffer
+		buf.Write(file.Content[idx.FileName].Data)
+		offsetToContent += int(idx.Size)
 	}
 	if uint32(idxBuf.Len()) != file.IndexHeader.Size+IndexHeaderLen {
 		return nil, fmt.Errorf("marshalled index has size %d when size %d was expected", idxBuf.Len(), file.IndexHeader.Size)
 	}
-	// append the index to the end of the output
-	copy(output[file.OffsetToIndex-sigDataSize:file.OffsetToIndex+uint32(idxBuf.Len())-sigDataSize], idxBuf.Bytes())
+	output = append(output, buf.Bytes()...)
+	output = append(output, idxBuf.Bytes()...)
+
+	// update the total size directly in the output data.
+	// this is basically the size of both the main and index buffer, but also the
+	// size of any future signatures if we're marshalling for signature (otherwise
+	// sigSizes is zero because the signature data is already in buf)
+	file.SignaturesHeader.FileSize = uint64(buf.Len() + idxBuf.Len() + sigSizes)
+	fsizeBuf := new(bytes.Buffer)
+	err = binary.Write(fsizeBuf, binary.BigEndian, file.SignaturesHeader.FileSize)
+	if err != nil {
+		return nil, err
+	}
+	copy(output[MarIDLen+OffsetToIndexLen:MarIDLen+OffsetToIndexLen+8], fsizeBuf.Bytes())
+
+	// update the offset to index directly in the output data
+	file.OffsetToIndex = uint32(buf.Len() + sigSizes)
+	offsetBuf := new(bytes.Buffer)
+	err = binary.Write(offsetBuf, binary.BigEndian, file.OffsetToIndex)
+	if err != nil {
+		return nil, err
+	}
+	copy(output[MarIDLen:MarIDLen+OffsetToIndexLen], offsetBuf.Bytes())
 
 	return output, nil
+
 }
 
 func parse(input []byte, data interface{}, startPos, readLen int) error {
