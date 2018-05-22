@@ -2,6 +2,7 @@ package mar // import "go.mozilla.org/mar"
 
 import (
 	"bytes"
+	"crypto"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -31,8 +32,8 @@ const (
 	// Optional additional sections can be added, their number is stored on 4 bytes
 	AdditionalSectionsHeaderLen = 4
 
-	// AdditionalSectionsEntryHeaderLen is the length of the header of each add. section
-	// Each additional section has a block size and block identifier on 4 bytes each
+	// AdditionalSectionsEntryHeaderLen is the length of the header of each
+	// additional section, containing a block size and identifier on 4 bytes each
 	AdditionalSectionsEntryHeaderLen = 8
 
 	// IndexHeaderLen is the length of the index header
@@ -41,7 +42,8 @@ const (
 
 	// IndexEntryHeaderLen is the length of the header of each index entry.
 	// Each index entry contains a header with an offset to content (relative to
-	// the beginning of the file), a content size and permission flags, each on 4 bytes
+	// the beginning of the file), a content size and permission flags,
+	// each on 4 bytes
 	IndexEntryHeaderLen = 12
 
 	// SigAlgRsaPkcs1Sha1 is the ID of a signature of type RSA-PKCS1-SHA1
@@ -50,7 +52,8 @@ const (
 	// SigAlgRsaPkcs1Sha384 is the ID of a signature of type RSA-PKCS1-SHA384
 	SigAlgRsaPkcs1Sha384 = 2
 
-	// BlockIDProductInfo is the ID of a Product Information Block in additional sections
+	// BlockIDProductInfo is the ID of a Product Information Block
+	// in additional sections
 	BlockIDProductInfo = 1
 )
 
@@ -66,70 +69,98 @@ type File struct {
 	IndexHeader              IndexHeader              `json:"index_header" yaml:"index_header"`
 	Index                    []IndexEntry             `json:"index" yaml:"index"`
 	Content                  map[string]Entry         `json:"content" yaml:"content"`
+
+	// marshalForSignature is used to tell the marshaller to exclude
+	// signature data when preparing a file for signing
+	marshalForSignature bool
 }
 
 // SignaturesHeader contains the total file size and number of signatures in the MAR file
 type SignaturesHeader struct {
-	FileSize      uint64 `json:"file_size" yaml:"file_size"`
+	// FileSize is the total size of the MAR file in bytes
+	FileSize uint64 `json:"file_size" yaml:"file_size"`
+	// NumSignatures is the count of signatures
 	NumSignatures uint32 `json:"num_signatures" yaml:"num_signatures"`
 }
 
 // Signature is a single signature on the MAR file
 type Signature struct {
 	SignatureEntryHeader
+	// Algorithm is a string that represents the signing algorithm name
 	Algorithm string `json:"algorithm" yaml:"algorithm"`
-	Data      []byte `json:"data" yaml:"data"`
+	// Data is the signature bytes
+	Data []byte `json:"data" yaml:"data"`
+
+	// privateKey is a RSA private key used for signing the MAR file
+	privateKey crypto.PrivateKey
 }
 
 // SignatureEntryHeader is the header of each signature entry that
 // contains the Algorithm ID and Size
 type SignatureEntryHeader struct {
+	// AlgorithmID is either SigAlgRsaPkcs1Sha1 (1) or SigAlgRsaPkcs1Sha384 (2)
 	AlgorithmID uint32 `json:"algorithm_id" yaml:"algorithm_id"`
-	Size        uint32 `json:"size" yaml:"size"`
+	// Size is the size of the signature data in bytes
+	Size uint32 `json:"size" yaml:"size"`
 }
 
 // AdditionalSectionsHeader contains the number of additional sections in the MAR file
 type AdditionalSectionsHeader struct {
+	// NumAdditionalSections is the count of additional sections
 	NumAdditionalSections uint32 `json:"num_additional_sections" yaml:"num_additional_sections"`
 }
 
 // AdditionalSection is a single additional section on the MAR file
 type AdditionalSection struct {
 	AdditionalSectionEntryHeader
+	// Data contains the additional section data
 	Data []byte `json:"data" yaml:"data"`
 }
 
 // AdditionalSectionEntryHeader is the header of each additional section
 // that contains the block size and ID
 type AdditionalSectionEntryHeader struct {
+	// BlockSize is the size of the additional section in bytes, including
+	// the header and the following data. You need to substract the header length
+	// to parse just the data..
 	BlockSize uint32 `json:"block_size" yaml:"block_size"`
-	BlockID   uint32 `json:"block_id" yaml:"block_id"`
+	// BlockID is the identifier of the block.
+	// BlockIDProductInfo (1) for Product Information
+	BlockID uint32 `json:"block_id" yaml:"block_id"`
 }
 
 // Entry is a single file entry in the MAR file. If IsCompressed is true, the content
 // is compressed with xz
 type Entry struct {
-	Data         []byte `json:"data" yaml:"data"`
-	IsCompressed bool   `json:"is_compressed" yaml:"is_compressed"`
+	// Data contains the raw data of the entry. It may still be compressed.
+	Data []byte `json:"data" yaml:"data"`
+	// IsCompressed is set to true if the Data is compressed with xz
+	IsCompressed bool `json:"is_compressed" yaml:"is_compressed"`
 }
 
 // IndexHeader is the size of the index section of the MAR file, in bytes
 type IndexHeader struct {
+	// Size is the size of the index, in bytes
 	Size uint32 `json:"size" yaml:"size"`
 }
 
 // IndexEntry is a single index entry in the MAR index
 type IndexEntry struct {
 	IndexEntryHeader
+	// Filename is the name of the file being indexed
 	FileName string `json:"file_name" yaml:"file_name"`
 }
 
 // IndexEntryHeader is the header of each index entry
 // that contains the offset to content, size and flags
 type IndexEntryHeader struct {
+	// OffsetToContent is the position in bytes of the entry data relative
+	// to the start of the MAR file
 	OffsetToContent uint32 `json:"offset_to_content" yaml:"offset_to_content"`
-	Size            uint32 `json:"size" yaml:"size"`
-	Flags           uint32 `json:"flags" yaml:"flags"`
+	// Size is the size of the data in bytes
+	Size uint32 `json:"size" yaml:"size"`
+	// Flags is the file permission bits in standard unix-style format
+	Flags uint32 `json:"flags" yaml:"flags"`
 }
 
 // Unmarshal takes an unparsed MAR file as input and parses it into a File struct
@@ -312,16 +343,18 @@ func Unmarshal(input []byte, file *File) error {
 	return nil
 }
 
-// MarshalForSignature returns an []byte of the data to be signed, or verified
-func (file *File) MarshalForSignature() ([]byte, error) {
-	// the total size of a signature block is the original file minus the signature data
-	var sigDataSize uint32
-	for _, sig := range file.Signatures {
-		sigDataSize += sig.Size
-	}
-	output := make([]byte, file.SignaturesHeader.FileSize-uint64(sigDataSize))
-
+// Marshal returns an []byte of the marshalled MAR file that follows the
+// expected MAR binary format. It expects a properly constructed MAR object
+// with the index and content already in place. It also should already be
+// signed, as the output of this function can no longer be modified.
+func (file *File) Marshal() ([]byte, error) {
+	var (
+		offsetToContent, sigSizes int
+		output                    []byte
+	)
 	buf := new(bytes.Buffer)
+
+	// Write the headers
 	err := binary.Write(buf, binary.BigEndian, []byte(file.MarID))
 	if err != nil {
 		return nil, err
@@ -334,6 +367,10 @@ func (file *File) MarshalForSignature() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// start the cursor after the first 3 headers
+	offsetToContent = MarIDLen + OffsetToIndexLen + SignaturesHeaderLen
+
+	// Write the signatures
 	for _, sig := range file.Signatures {
 		err = binary.Write(buf, binary.BigEndian, sig.AlgorithmID)
 		if err != nil {
@@ -343,11 +380,29 @@ func (file *File) MarshalForSignature() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		// If we're marshalling for signature, skip the actual signature data
+		// from the output, but count it in the total size and offsets
+		if file.marshalForSignature {
+			// reset the flag when the function exits
+			defer func() { file.marshalForSignature = false }()
+			// even though we're not writing the signature, we still need
+			// to account for its size in the offsets and total
+			sigSizes += int(sig.Size)
+		} else {
+			// if we're not preparing a signable block,
+			// include the signature data
+			_, err = buf.Write(sig.Data)
+			if err != nil {
+				return nil, err
+			}
+		}
+		offsetToContent += SignatureEntryHeaderLen + int(sig.Size)
 	}
 	err = binary.Write(buf, binary.BigEndian, file.AdditionalSectionsHeader)
 	if err != nil {
 		return nil, err
 	}
+	offsetToContent += AdditionalSectionsHeaderLen
 	for _, as := range file.AdditionalSections {
 		err = binary.Write(buf, binary.BigEndian, as.BlockSize)
 		if err != nil {
@@ -361,9 +416,8 @@ func (file *File) MarshalForSignature() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		offsetToContent += int(as.BlockSize)
 	}
-	// insert the first section at the beginning of the file
-	copy(output[0:buf.Len()], buf.Bytes())
 
 	// we need to marshal the content according to the index
 	idxBuf := new(bytes.Buffer)
@@ -372,7 +426,7 @@ func (file *File) MarshalForSignature() ([]byte, error) {
 		return nil, err
 	}
 	for _, idx := range file.Index {
-		err = binary.Write(idxBuf, binary.BigEndian, idx.OffsetToContent)
+		err = binary.Write(idxBuf, binary.BigEndian, uint32(offsetToContent))
 		if err != nil {
 			return nil, err
 		}
@@ -392,17 +446,39 @@ func (file *File) MarshalForSignature() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		// copy the content in the right position earlier in the file
-		// since we don't signatures, we remove their size from the offsets
-		copy(output[idx.OffsetToContent-sigDataSize:idx.OffsetToContent+idx.Size-sigDataSize], file.Content[idx.FileName].Data)
+		// copy the content to the main buffer
+		buf.Write(file.Content[idx.FileName].Data)
+		offsetToContent += int(idx.Size)
 	}
 	if uint32(idxBuf.Len()) != file.IndexHeader.Size+IndexHeaderLen {
 		return nil, fmt.Errorf("marshalled index has size %d when size %d was expected", idxBuf.Len(), file.IndexHeader.Size)
 	}
-	// append the index to the end of the output
-	copy(output[file.OffsetToIndex-sigDataSize:file.OffsetToIndex+uint32(idxBuf.Len())-sigDataSize], idxBuf.Bytes())
+	output = append(output, buf.Bytes()...)
+	output = append(output, idxBuf.Bytes()...)
+
+	// update the total size directly in the output data.
+	// this is basically the size of both the main and index buffer, but also the
+	// size of any future signatures if we're marshalling for signature (otherwise
+	// sigSizes is zero because the signature data is already in buf)
+	file.SignaturesHeader.FileSize = uint64(buf.Len() + idxBuf.Len() + sigSizes)
+	fsizeBuf := new(bytes.Buffer)
+	err = binary.Write(fsizeBuf, binary.BigEndian, file.SignaturesHeader.FileSize)
+	if err != nil {
+		return nil, err
+	}
+	copy(output[MarIDLen+OffsetToIndexLen:MarIDLen+OffsetToIndexLen+8], fsizeBuf.Bytes())
+
+	// update the offset to index directly in the output data
+	file.OffsetToIndex = uint32(buf.Len() + sigSizes)
+	offsetBuf := new(bytes.Buffer)
+	err = binary.Write(offsetBuf, binary.BigEndian, file.OffsetToIndex)
+	if err != nil {
+		return nil, err
+	}
+	copy(output[MarIDLen:MarIDLen+OffsetToIndexLen], offsetBuf.Bytes())
 
 	return output, nil
+
 }
 
 func parse(input []byte, data interface{}, startPos, readLen int) error {
