@@ -16,6 +16,7 @@ func (file *File) PrepareSignature(key *rsa.PrivateKey) {
 	sig.Size = uint32(key.N.BitLen() / 8)
 	sig.privateKey = key
 	file.Signatures = append(file.Signatures, sig)
+	file.SignaturesHeader.NumSignatures++
 	return
 }
 
@@ -27,11 +28,15 @@ func (file *File) FinalizeSignatures() error {
 		return err
 	}
 	hashed := sha512.Sum384(signableBlock)
-	for i, sig := range file.Signatures {
-		file.Signatures[i].Data, err = rsa.SignPKCS1v15(rand.Reader, sig.privateKey, crypto.SHA384, hashed[:])
+	for i := range file.Signatures {
+		sigData, err := rsa.SignPKCS1v15(rand.Reader,
+			file.Signatures[i].privateKey.(*rsa.PrivateKey),
+			crypto.SHA384,
+			hashed[:])
 		if err != nil {
 			return err
 		}
+		file.Signatures[i].Data = append(file.Signatures[i].Data, sigData...)
 	}
 	return nil
 }

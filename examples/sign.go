@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -20,17 +21,17 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	signedBlock, err := file.MarshalForSignature()
-	if err != nil {
-		log.Fatal(err)
-	}
+
+	// flush the signatures, we'll make new ones
+	file.SignaturesHeader.NumSignatures = uint32(0)
+	file.Signatures = nil
 
 	// Add both keys for signature, then finalize
-	rsaKey1, err := rsa.GenerateKey(rand.Reader, 512)
+	rsaKey1, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		log.Fatal(err)
 	}
-	rsaKey2, err := rsa.GenerateKey(rand.Reader, 512)
+	rsaKey2, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -49,8 +50,10 @@ func main() {
 		log.Fatal(err)
 	}
 
+	fmt.Println("--- MAR file has been resigned ---")
+	ioutil.WriteFile("/tmp/resigned.mar", output, 0644)
 	// reparse for testing, and verify signature
-	err = mar.Unmarshal(input, &refile)
+	err = mar.Unmarshal(output, &refile)
 	if err != nil {
 		log.Fatal(err)
 	}

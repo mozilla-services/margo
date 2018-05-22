@@ -2,7 +2,7 @@ package mar // import "go.mozilla.org/mar"
 
 import (
 	"bytes"
-	"crypto/rsa"
+	"crypto"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -92,7 +92,7 @@ type Signature struct {
 	Data []byte `json:"data" yaml:"data"`
 
 	// privateKey is a RSA private key used for signing the MAR file
-	privateKey *rsa.PrivateKey
+	privateKey crypto.PrivateKey
 }
 
 // SignatureEntryHeader is the header of each signature entry that
