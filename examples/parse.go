@@ -31,8 +31,8 @@ func main() {
 		log.Fatal(err)
 	}
 	if !isSigned {
-		log.Fatal("Signature: no valid signature found")
+		log.Fatal("signature: no valid signature found")
 	} else {
-		fmt.Printf("Signature: OK, valid signature from %s\n", strings.Join(validKeys, ","))
+		fmt.Printf("signature: OK, valid signature from %s\n", strings.Join(validKeys, ","))
 	}
 }
