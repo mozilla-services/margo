@@ -84,7 +84,7 @@ type SignaturesHeader struct {
 
 // Signature is a single signature on the MAR file
 type Signature struct {
-	SignatureEntryHeader
+	SignatureEntryHeader `json:"signature_entry" yaml:"signature_entry"`
 	// Algorithm is a string that represents the signing algorithm name
 	Algorithm string `json:"algorithm" yaml:"algorithm"`
 	// Data is the signature bytes
@@ -111,7 +111,7 @@ type AdditionalSectionsHeader struct {
 
 // AdditionalSection is a single additional section on the MAR file
 type AdditionalSection struct {
-	AdditionalSectionEntryHeader
+	AdditionalSectionEntryHeader `json:"additional_section_entry" yaml:"additional_section_entry"`
 	// Data contains the additional section data
 	Data []byte `json:"data" yaml:"-"`
 }
