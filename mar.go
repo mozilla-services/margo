@@ -51,6 +51,9 @@ const (
 	// SigAlgRsaPkcs1Sha384 is the ID of a signature of type RSA-PKCS1-SHA384
 	SigAlgRsaPkcs1Sha384 = 2
 
+	// SigAlgEcdsaSha384 is the ID of a signature of type ECDSA-SHA384
+	SigAlgEcdsaSha384 = 3
+
 	// BlockIDProductInfo is the ID of a Product Information Block
 	// in additional sections
 	BlockIDProductInfo = 1

@@ -2,6 +2,7 @@ package mar
 
 import (
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha512"
@@ -10,10 +11,20 @@ import (
 // PrepareSignature adds a new signature header to a MAR file
 // but does not sign yet. You have to call FinalizeSignature
 // to actually sign the MAR file.
-func (file *File) PrepareSignature(key *rsa.PrivateKey) {
+func (file *File) PrepareSignature(key crypto.PrivateKey, pubkey crypto.PublicKey) {
 	var sig Signature
-	sig.AlgorithmID = SigAlgRsaPkcs1Sha384
-	sig.Size = uint32(key.N.BitLen() / 8)
+	switch pubkey.(type) {
+	case *rsa.PublicKey:
+		sig.AlgorithmID = SigAlgRsaPkcs1Sha384
+		sig.Size = uint32(pubkey.(*rsa.PublicKey).N.BitLen() / 8)
+	case *ecdsa.PublicKey:
+		sig.AlgorithmID = SigAlgEcdsaSha384
+		// an ecdsa signature has 2 values R and S that are
+		// each the size of the curve bitsize,
+		sig.Size = uint32(pubkey.(*ecdsa.PublicKey).Params().BitSize / 8 * 2)
+	default:
+		panic("unsupported key type")
+	}
 	sig.privateKey = key
 	file.Signatures = append(file.Signatures, sig)
 	file.SignaturesHeader.NumSignatures++
@@ -29,10 +40,7 @@ func (file *File) FinalizeSignatures() error {
 	}
 	hashed := sha512.Sum384(signableBlock)
 	for i := range file.Signatures {
-		sigData, err := rsa.SignPKCS1v15(rand.Reader,
-			file.Signatures[i].privateKey.(*rsa.PrivateKey),
-			crypto.SHA384,
-			hashed[:])
+		sigData, err := file.Signatures[i].privateKey.(crypto.Signer).Sign(rand.Reader, hashed[:], crypto.SHA384)
 		if err != nil {
 			return err
 		}
