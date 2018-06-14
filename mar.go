@@ -48,6 +48,9 @@ const (
 	// BlockIDProductInfo is the ID of a Product Information Block
 	// in additional sections
 	BlockIDProductInfo = 1
+
+	// MinMarSize is the minimal size, in bytes, of a MAR file given all required headers
+	MinMarSize = MarIDLen + OffsetToIndexLen + SignaturesHeaderLen + AdditionalSectionsHeaderLen + IndexHeaderLen
 )
 
 // File is a parsed MAR file.
@@ -164,7 +167,7 @@ func Unmarshal(input []byte, file *File) error {
 
 		i uint32
 	)
-	if len(input) < MarIDLen+OffsetToIndexLen+SignaturesHeaderLen+AdditionalSectionsHeaderLen+IndexHeaderLen {
+	if len(input) < MinMarSize {
 		return fmt.Errorf("input is smaller than minimum MAR size and cannot be parsed")
 	}
 
@@ -206,14 +209,7 @@ func Unmarshal(input []byte, file *File) error {
 
 		sig.AlgorithmID = sigEntryHeader.AlgorithmID
 		sig.Size = sigEntryHeader.Size
-		switch sig.AlgorithmID {
-		case SigAlgRsaPkcs1Sha1:
-			sig.Algorithm = "RSA-PKCS1-SHA1"
-		case SigAlgRsaPkcs1Sha384:
-			sig.Algorithm = "RSA-PKCS1-SHA384"
-		default:
-			sig.Algorithm = "unknown"
-		}
+		sig.Algorithm = getSigAlgNameFromID(sig.AlgorithmID)
 
 		sig.Data = make([]byte, sig.Size, sig.Size)
 		err = parse(input, &sig.Data, cursor, int(sig.Size))
@@ -332,9 +328,16 @@ func (file *File) Marshal() ([]byte, error) {
 	buf := new(bytes.Buffer)
 
 	// Write the headers
+	if file.MarID != "MAR1" {
+		return nil, errBadMarID
+	}
 	err := binary.Write(buf, binary.BigEndian, []byte(file.MarID))
 	if err != nil {
 		return nil, err
+	}
+
+	if file.OffsetToIndex < MinMarSize {
+		return nil, errOffsetTooSmall
 	}
 	err = binary.Write(buf, binary.BigEndian, file.OffsetToIndex)
 	if err != nil {

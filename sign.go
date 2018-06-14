@@ -137,3 +137,17 @@ func getEcdsaInfo(curve string) (uint32, uint32) {
 		return 0, 0
 	}
 }
+
+func getSigAlgNameFromID(id uint32) string {
+	switch id {
+	case SigAlgRsaPkcs1Sha1:
+		return "RSA-PKCS1v15-SHA1"
+	case SigAlgRsaPkcs1Sha384:
+		return "RSA-PKCS1v15-SHA384"
+	case SigAlgEcdsaP256Sha256:
+		return "ECDSA-P256-SHA256"
+	case SigAlgEcdsaP384Sha384:
+		return "ECDSA-P384-SHA384"
+	}
+	return "unknown"
+}
