@@ -4,7 +4,7 @@ lint:
 	golint go.mozilla.org/mar
 
 vet:
-	go vet go.mozilla.org/mar
+	go vet -composites=false go.mozilla.org/mar
 
 test:
 	go test -covermode=count -coverprofile=coverage_mar.out go.mozilla.org/mar
