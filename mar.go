@@ -45,15 +45,6 @@ const (
 	// each on 4 bytes
 	IndexEntryHeaderLen = 12
 
-	// SigAlgRsaPkcs1Sha1 is the ID of a signature of type RSA-PKCS1-SHA1
-	SigAlgRsaPkcs1Sha1 = 1
-
-	// SigAlgRsaPkcs1Sha384 is the ID of a signature of type RSA-PKCS1-SHA384
-	SigAlgRsaPkcs1Sha384 = 2
-
-	// SigAlgEcdsaSha384 is the ID of a signature of type ECDSA-SHA384
-	SigAlgEcdsaSha384 = 3
-
 	// BlockIDProductInfo is the ID of a Product Information Block
 	// in additional sections
 	BlockIDProductInfo = 1
@@ -142,7 +133,7 @@ type Entry struct {
 
 // IndexHeader is the size of the index section of the MAR file, in bytes
 type IndexHeader struct {
-	// Size is the size of the index, in bytes
+	// Size is the size of the index entries, in bytes
 	Size uint32 `json:"size" yaml:"size"`
 }
 
@@ -286,6 +277,7 @@ func Unmarshal(input []byte, file *File) error {
 			idxEntryHeader IndexEntryHeader
 			idxEntry       IndexEntry
 		)
+		// don't read beyond the end of the file
 		if cursor >= int(file.SignaturesHeader.FileSize) {
 			break
 		}
@@ -435,8 +427,13 @@ func (file *File) Marshal() ([]byte, error) {
 		buf.Write(file.Content[idx.FileName].Data)
 		offsetToContent += int(idx.Size)
 	}
-	if uint32(idxBuf.Len()) != file.IndexHeader.Size+IndexHeaderLen {
-		return nil, fmt.Errorf("marshalled index has size %d when size %d was expected", idxBuf.Len(), file.IndexHeader.Size)
+	// At this point, the side of idxBuf should be the size of the index header
+	// plus the size of all index entries. We do a sanity check to make sure that
+	// the value of file.IndexHeader.Size (the size of all index entries) matches
+	// the size of the index we just created
+	if uint32(idxBuf.Len())-IndexHeaderLen != file.IndexHeader.Size {
+		return nil, fmt.Errorf("marshalled index has size %d when size %d was expected",
+			idxBuf.Len()-IndexHeaderLen, file.IndexHeader.Size)
 	}
 	output = append(output, buf.Bytes()...)
 	output = append(output, idxBuf.Bytes()...)

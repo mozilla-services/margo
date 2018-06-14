@@ -7,7 +7,10 @@ vet:
 	go vet go.mozilla.org/mar
 
 test:
-	go test go.mozilla.org/mar
+	go test -covermode=count -coverprofile=coverage_mar.out go.mozilla.org/mar
+
+coverage: test
+	go tool cover -html=coverage_mar.out
 
 getkeys:
 	# only sync firefox keys every day max
