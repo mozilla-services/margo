@@ -24,3 +24,5 @@ getsamplemar:
 testparser:
 	go run -ldflags "-X go.mozilla.org/mar.debug=true" examples/parse.go firefox-60.0esr-60.0.1esr.partial.mar 2>&1 | grep 'signature: OK, valid signature from release1_sha384'
 
+.PHONY: all lint vet test getkeys getsamplemar testparser
+

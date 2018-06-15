@@ -333,7 +333,12 @@ func Unmarshal(input []byte, file *File) error {
 		// copy the content from the input buffer into the entry data.
 		// security checks were already done when parsing the index, so
 		// we know this is safe
-		entry.Data = append(entry.Data, input[idxEntry.OffsetToContent:idxEntry.OffsetToContent+idxEntry.Size]...)
+		entry.Data = make([]byte, idxEntry.Size, idxEntry.Size)
+		p.cursor = uint64(idxEntry.OffsetToContent)
+		err = p.parse(input, entry.Data, int(idxEntry.Size))
+		if err != nil {
+			return err
+		}
 		// move the cursor to the location of the content
 		// files in MAR archives can be compressed with xz, so we test
 		// the first 6 bytes to check for that

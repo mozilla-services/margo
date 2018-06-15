@@ -33,6 +33,7 @@ func TestMarshalBadIndexHeaderSize(t *testing.T) {
 	if err.Error() != "marshalled index has size 21 when size 3 was expected" {
 		t.Fatalf("Expected to fail with error 'marshalled index has size 21 when size 3 was expected' but failed with error %q", err)
 	}
+	t.Log(err)
 }
 
 func TestMarshalIndexOffsetTooSmall(t *testing.T) {
@@ -45,6 +46,7 @@ func TestMarshalIndexOffsetTooSmall(t *testing.T) {
 	if err != errOffsetTooSmall {
 		t.Fatalf("Expected to fail with error %q but failed with error %q", errOffsetTooSmall, err)
 	}
+	t.Log(err)
 }
 
 func TestMarshalBadMarID(t *testing.T) {
@@ -57,6 +59,7 @@ func TestMarshalBadMarID(t *testing.T) {
 	if err != errBadMarID {
 		t.Fatalf("Expected to fail with error %q but failed with error %q", errBadMarID, err)
 	}
+	t.Log(err)
 }
 
 func TestAddingContent(t *testing.T) {
@@ -100,6 +103,7 @@ func TestAddingDupContent(t *testing.T) {
 	if err != errDupContent {
 		t.Fatalf("expected to fail with duplicated content error but failed with: %v", err)
 	}
+	t.Log(err)
 }
 
 var miniMar = File{
