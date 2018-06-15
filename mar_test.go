@@ -1,6 +1,7 @@
 package mar
 
 import (
+	"bytes"
 	"testing"
 )
 
@@ -55,6 +56,49 @@ func TestMarshalBadMarID(t *testing.T) {
 	}
 	if err != errBadMarID {
 		t.Fatalf("Expected to fail with error %q but failed with error %q", errBadMarID, err)
+	}
+}
+
+func TestAddingContent(t *testing.T) {
+	newMar := miniMar
+	var (
+		data         = []byte("cariboumaurice")
+		name         = "/foo/bar/baz"
+		flags uint32 = 640
+	)
+	err := newMar.AddContent(data, name, flags)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := newMar.Content[name]; !ok {
+		t.Fatal("expected to find added content entry but didn't")
+	}
+	if !bytes.Equal(newMar.Content[name].Data, data) {
+		t.Fatalf("expected to find data %q in content map but found %q", data, newMar.Content[name].Data)
+	}
+	if newMar.Index[len(newMar.Index)-1].Flags != flags {
+		t.Fatalf("expected to find flags %d in index entry but found %d",
+			flags, newMar.Index[len(newMar.Index)-1].Flags)
+	}
+	if newMar.Index[len(newMar.Index)-1].FileName != name {
+		t.Fatalf("expected to find filename %q in index entry but found %q",
+			name, newMar.Index[len(newMar.Index)-1].FileName)
+	}
+}
+
+func TestAddingDupContent(t *testing.T) {
+	newMar := miniMar
+	var (
+		data         = []byte("cariboumaurice")
+		name         = "/foo/bar"
+		flags uint32 = 640
+	)
+	err := newMar.AddContent(data, name, flags)
+	if err == nil {
+		t.Fatal("expected to fail due to duplicated content but didn't")
+	}
+	if err != errDupContent {
+		t.Fatalf("expected to fail with duplicated content error but failed with: %v", err)
 	}
 }
 

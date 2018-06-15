@@ -41,6 +41,7 @@ var (
 	errIndexFileNameOverrun    = errors.New("the length of the index file overruns the end of the file")
 	errCursorStartAlreadyRead  = errors.New("start position has already been read in a previous chunk")
 	errCursorEndAlreadyRead    = errors.New("end position has already been read in a previous chunk")
+	errDupContent              = errors.New("a content entry with that name already exists")
 )
 
 // change that at runtime by setting -ldflags "-X go.mozilla.org/mar.debug=true"

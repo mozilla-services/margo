@@ -505,5 +505,20 @@ func (file *File) Marshal() ([]byte, error) {
 	copy(output[MarIDLen:MarIDLen+OffsetToIndexLen], offsetBuf.Bytes())
 
 	return output, nil
+}
 
+// AddContent stores content in a MAR and creates a new entry in the index
+func (file *File) AddContent(data []byte, name string, flags uint32) error {
+	if _, ok := file.Content[name]; ok {
+		return errDupContent
+	}
+	file.Content[name] = Entry{Data: data}
+	file.Index = append(file.Index, IndexEntry{
+		IndexEntryHeader{
+			Size:  uint32(len(data)),
+			Flags: flags,
+		},
+		name,
+	})
+	return nil
 }
