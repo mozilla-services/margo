@@ -162,10 +162,8 @@ type IndexEntryHeader struct {
 // Unmarshal takes an unparsed MAR file as input and parses it into a File struct
 func Unmarshal(input []byte, file *File) error {
 	var (
-		// current position of the cursor in the file
-		cursor int
-
 		i uint32
+		p parser
 	)
 	if len(input) < MinMarSize {
 		return fmt.Errorf("input is smaller than minimum MAR size and cannot be parsed")
@@ -173,26 +171,47 @@ func Unmarshal(input []byte, file *File) error {
 
 	// Parse the MAR ID
 	marid := make([]byte, MarIDLen, MarIDLen)
-	err := parse(input, &marid, cursor, MarIDLen)
+	err := p.parse(input, &marid, MarIDLen)
 	if err != nil {
-		return fmt.Errorf("parsing failed at position %d: %v", cursor, err)
+		return fmt.Errorf("mar id parsing failed: %v", err)
 	}
-	cursor += MarIDLen
 	file.MarID = string(marid)
 
 	// Parse the offset to the index
-	err = parse(input, &file.OffsetToIndex, cursor, OffsetToIndexLen)
+	err = p.parse(input, &file.OffsetToIndex, OffsetToIndexLen)
 	if err != nil {
-		return fmt.Errorf("parsing failed at position %d: %v", cursor, err)
+		return fmt.Errorf("offset parsing failed: %v", err)
 	}
-	cursor += OffsetToIndexLen
 
 	// Parse the Signature header
-	err = parse(input, &file.SignaturesHeader, cursor, SignaturesHeaderLen)
+	err = p.parse(input, &file.SignaturesHeader, SignaturesHeaderLen)
 	if err != nil {
-		return fmt.Errorf("parsing failed at position %d: %v", cursor, err)
+		return fmt.Errorf("signature header parsing failed: %v", err)
 	}
-	cursor += SignaturesHeaderLen
+
+	// Jump to the index header to parse it.
+	// We do that do get the index size and check that the total file size
+	// matches the filesize in the signature header
+	// This provides an extra sanity check to make sure we're not about to
+	// parse a malform MAR file with a size large enough to boil the oceans
+	// (because filesize is a uint64, for some reason...)
+	savedCursor := p.cursor
+	p.cursor = file.OffsetToIndex
+	err = p.parse(input, &file.IndexHeader, IndexHeaderLen)
+	if err != nil {
+		return fmt.Errorf("index header parsing failed: %v", err)
+	}
+	if file.SignaturesHeader.FileSize != uint64(file.OffsetToIndex+file.IndexHeader.Size+IndexHeaderLen) {
+		return errMalformedFileSize
+	}
+	// the maximum size we'll agree to parse is 2GB.
+	// People From The Future, if this isn't large enough for you, feel
+	// free to increase it, and have some self reflection because 640k
+	// oughta be enough for everybody!
+	if file.SignaturesHeader.FileSize > 2147483648 {
+		return errTooBig
+	}
+	p.cursor = savedCursor
 
 	// Parse each signature and append them to the File
 	for i = 0; i < file.SignaturesHeader.NumSignatures; i++ {
@@ -201,31 +220,28 @@ func Unmarshal(input []byte, file *File) error {
 			sig            Signature
 		)
 
-		err = parse(input, &sigEntryHeader, cursor, SignatureEntryHeaderLen)
+		err = p.parse(input, &sigEntryHeader, SignatureEntryHeaderLen)
 		if err != nil {
-			return fmt.Errorf("parsing failed at position %d: %v", cursor, err)
+			return fmt.Errorf("signature entry header parsing failed: %v", err)
 		}
-		cursor += SignatureEntryHeaderLen
 
 		sig.AlgorithmID = sigEntryHeader.AlgorithmID
 		sig.Size = sigEntryHeader.Size
 		sig.Algorithm = getSigAlgNameFromID(sig.AlgorithmID)
 
 		sig.Data = make([]byte, sig.Size, sig.Size)
-		err = parse(input, &sig.Data, cursor, int(sig.Size))
+		err = p.parse(input, &sig.Data, int(sig.Size))
 		if err != nil {
-			return fmt.Errorf("parsing failed at position %d: %v", cursor, err)
+			return fmt.Errorf("signature data parsing failed: %v", err)
 		}
-		cursor += int(sig.Size)
 		file.Signatures = append(file.Signatures, sig)
 	}
 
 	// Parse the additional sections header
-	err = parse(input, &file.AdditionalSectionsHeader, cursor, AdditionalSectionsHeaderLen)
+	err = p.parse(input, &file.AdditionalSectionsHeader, AdditionalSectionsHeaderLen)
 	if err != nil {
-		return fmt.Errorf("parsing failed at position %d: %v", cursor, err)
+		return fmt.Errorf("additional section header parsing failed: %v", err)
 	}
-	cursor += AdditionalSectionsHeaderLen
 
 	// Parse each additional section and append them to the File
 	for i = 0; i < file.AdditionalSectionsHeader.NumAdditionalSections; i++ {
@@ -234,22 +250,20 @@ func Unmarshal(input []byte, file *File) error {
 			as  AdditionalSection
 		)
 
-		err = parse(input, &ash, cursor, AdditionalSectionsEntryHeaderLen)
+		err = p.parse(input, &ash, AdditionalSectionsEntryHeaderLen)
 		if err != nil {
-			return fmt.Errorf("parsing failed at position %d: %v", cursor, err)
+			return fmt.Errorf("additional section entry header parsing failed: %v", err)
 		}
-		cursor += AdditionalSectionsEntryHeaderLen
 
 		as.BlockID = ash.BlockID
 		as.BlockSize = ash.BlockSize
 		dataSize := ash.BlockSize - AdditionalSectionsEntryHeaderLen
 		as.Data = make([]byte, dataSize, dataSize)
 
-		err = parse(input, &as.Data, cursor, int(dataSize))
+		err = p.parse(input, &as.Data, int(dataSize))
 		if err != nil {
-			return fmt.Errorf("parsing failed at position %d: %v", cursor, err)
+			return fmt.Errorf("additional section data parsing failed: %v", err)
 		}
-		cursor += int(dataSize)
 
 		switch ash.BlockID {
 		case BlockIDProductInfo:
@@ -259,49 +273,60 @@ func Unmarshal(input []byte, file *File) error {
 		file.AdditionalSections = append(file.AdditionalSections, as)
 	}
 
-	// Parse the index before parsing the content
-	cursor = int(file.OffsetToIndex)
-
-	err = parse(input, &file.IndexHeader, cursor, IndexHeaderLen)
-	if err != nil {
-		return fmt.Errorf("parsing failed at position %d: %v", cursor, err)
-	}
-	cursor += IndexHeaderLen
-
+	// parse the index
+	p.cursor = file.OffsetToIndex + IndexHeaderLen
 	for i = 0; ; i++ {
 		var (
 			idxEntryHeader IndexEntryHeader
 			idxEntry       IndexEntry
 		)
 		// don't read beyond the end of the file
-		if cursor >= int(file.SignaturesHeader.FileSize) {
+		if uint64(p.cursor) >= file.SignaturesHeader.FileSize {
 			break
 		}
-		err = parse(input, &idxEntryHeader, cursor, IndexEntryHeaderLen)
+		err = p.parse(input, &idxEntryHeader, IndexEntryHeaderLen)
 		if err != nil {
-			return fmt.Errorf("parsing failed at position %d: %v", cursor, err)
+			return fmt.Errorf("index entry parsing failed: %v", err)
 		}
-		cursor += IndexEntryHeaderLen
 
 		idxEntry.Size = idxEntryHeader.Size
 		idxEntry.Flags = idxEntryHeader.Flags
 		idxEntry.OffsetToContent = idxEntryHeader.OffsetToContent
 
-		endNamePos := bytes.Index(input[cursor:], []byte("\x00"))
+		endNamePos := bytes.Index(input[p.cursor:], []byte("\x00"))
+
+		// apply some sanity checking on filenames.
+		// they shouldn't be longer than 1024 characters, and their length
+		// can't overrun the size of the input
 		if endNamePos < 0 {
-			return fmt.Errorf("malformed index is missing null terminator in file name")
+			return errMalformedIndexFileName
 		}
-		idxEntry.FileName = string(input[cursor : cursor+endNamePos])
-		cursor += endNamePos + 1
+		if endNamePos > 1024 {
+			return errIndexFileNameTooBig
+		}
+		if uint64(p.cursor+uint32(endNamePos)) > file.SignaturesHeader.FileSize {
+			return errIndexFileNameOverrun
+
+		}
+		idxEntry.FileName = string(input[int(p.cursor):int(p.cursor+uint32(endNamePos))])
+
+		// manually move the cursor to the end of the filename
+		p.cursor = p.cursor + uint32(endNamePos) + 1
 
 		file.Index = append(file.Index, idxEntry)
 	}
 
+	// parse the content
 	file.Content = make(map[string]Entry)
 	for _, idxEntry := range file.Index {
 		var entry Entry
-		// seek and read content
-		entry.Data = append(entry.Data, input[idxEntry.OffsetToContent:idxEntry.OffsetToContent+idxEntry.Size]...)
+		// move the cursor to the location of the content
+		p.cursor = idxEntry.OffsetToContent
+		err = p.parse(input, &entry.Data, int(idxEntry.Size))
+		if err != nil {
+			return fmt.Errorf("content parsing failed: %v", err)
+		}
+		//entry.Data = append(entry.Data, input[idxEntry.OffsetToContent:idxEntry.OffsetToContent+idxEntry.Size]...)
 		// files in MAR archives can be compressed with xz, so we test
 		// the first 6 bytes to check for that
 		//                                                             /---XZ's magic number--\
@@ -464,12 +489,4 @@ func (file *File) Marshal() ([]byte, error) {
 
 	return output, nil
 
-}
-
-func parse(input []byte, data interface{}, startPos, readLen int) error {
-	if len(input) < startPos+readLen {
-		return fmt.Errorf("refusing to read more bytes than present in input")
-	}
-	r := bytes.NewReader(input[startPos : startPos+readLen])
-	return binary.Read(r, binary.BigEndian, data)
 }
