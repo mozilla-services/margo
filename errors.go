@@ -6,9 +6,16 @@ import (
 )
 
 var (
-	limitMinFileSize           = MarIDLen + OffsetToIndexLen + SignaturesHeaderLen + AdditionalSectionsHeaderLen + IndexHeaderLen
-	limitMaxFileSize    uint64 = 2147483648
-	limitFileNameLength        = 1024
+	limitMinFileSize = MarIDLen + OffsetToIndexLen + SignaturesHeaderLen + AdditionalSectionsHeaderLen + IndexHeaderLen
+
+	// the maximum size we'll agree to parse is 2GB.
+	// People From The Future, if this isn't large enough for you, feel
+	// free to increase it, and have some self reflection because 640k
+	// oughta be enough for everybody!
+	limitMaxFileSize uint64 = 2147483648
+
+	// filenames in the index shouldn't be longer than 1024 characters
+	limitFileNameLength = 1024
 )
 
 var (
@@ -25,6 +32,7 @@ var (
 	errCursorEndAlreadyRead   = errors.New("end position has already been read in a previous chunk")
 )
 
+// change that at runtime by setting -ldflags "-X go.mozilla.org/mar.debug=true"
 const debug = false
 
 func debugPrint(format string, a ...interface{}) {

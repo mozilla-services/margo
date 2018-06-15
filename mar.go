@@ -173,6 +173,9 @@ func Unmarshal(input []byte, file *File) error {
 		return fmt.Errorf("mar id parsing failed: %v", err)
 	}
 	file.MarID = string(marid)
+	if file.MarID != "MAR1" {
+		return errBadMarID
+	}
 
 	// Parse the offset to the index
 	err = p.parse(input, &file.OffsetToIndex, OffsetToIndexLen)
