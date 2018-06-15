@@ -11,13 +11,13 @@ import (
 // so use one parser per thread/goroutine.
 type parser struct {
 	// current position of the cursor in the file
-	cursor uint32
+	cursor uint64
 	// readChunks is the list of chunks that have already been read
 	readChunks []chunk
 }
 
 type chunk struct {
-	start, end uint32
+	start, end uint64
 }
 
 // parse reads from input and converts it into the target data structure.
@@ -27,8 +27,8 @@ type chunk struct {
 // where multiple index entries reference the same chunk of content.
 func (p *parser) parse(input []byte, data interface{}, readLen int) error {
 	startPos := p.cursor
-	endPos := p.cursor + uint32(readLen)
-	if uint32(len(input)) < endPos {
+	endPos := p.cursor + uint64(readLen)
+	if uint64(len(input)) < endPos {
 		return errInputTooShort
 	}
 	// verify that we're not trying to read a chunk that has already been read.

@@ -6,6 +6,12 @@ import (
 )
 
 var (
+	limitMinFileSize           = MarIDLen + OffsetToIndexLen + SignaturesHeaderLen + AdditionalSectionsHeaderLen + IndexHeaderLen
+	limitMaxFileSize    uint64 = 2147483648
+	limitFileNameLength        = 1024
+)
+
+var (
 	errBadMarID               = errors.New("mar ID must be MAR1")
 	errOffsetTooSmall         = errors.New("offset to index is too small to be valid")
 	errBadSigAlg              = errors.New("bad signature algorithm")
@@ -19,7 +25,7 @@ var (
 	errCursorEndAlreadyRead   = errors.New("end position has already been read in a previous chunk")
 )
 
-const debug = true
+const debug = false
 
 func debugPrint(format string, a ...interface{}) {
 	if debug {

@@ -48,9 +48,6 @@ const (
 	// BlockIDProductInfo is the ID of a Product Information Block
 	// in additional sections
 	BlockIDProductInfo = 1
-
-	// MinMarSize is the minimal size, in bytes, of a MAR file given all required headers
-	MinMarSize = MarIDLen + OffsetToIndexLen + SignaturesHeaderLen + AdditionalSectionsHeaderLen + IndexHeaderLen
 )
 
 // File is a parsed MAR file.
@@ -165,7 +162,7 @@ func Unmarshal(input []byte, file *File) error {
 		i uint32
 		p parser
 	)
-	if len(input) < MinMarSize {
+	if len(input) < limitMinFileSize {
 		return fmt.Errorf("input is smaller than minimum MAR size and cannot be parsed")
 	}
 
@@ -196,7 +193,7 @@ func Unmarshal(input []byte, file *File) error {
 	// parse a malform MAR file with a size large enough to boil the oceans
 	// (because filesize is a uint64, for some reason...)
 	savedCursor := p.cursor
-	p.cursor = file.OffsetToIndex
+	p.cursor = uint64(file.OffsetToIndex)
 	err = p.parse(input, &file.IndexHeader, IndexHeaderLen)
 	if err != nil {
 		return fmt.Errorf("index header parsing failed: %v", err)
@@ -208,7 +205,7 @@ func Unmarshal(input []byte, file *File) error {
 	// People From The Future, if this isn't large enough for you, feel
 	// free to increase it, and have some self reflection because 640k
 	// oughta be enough for everybody!
-	if file.SignaturesHeader.FileSize > 2147483648 {
+	if file.SignaturesHeader.FileSize > limitMaxFileSize {
 		return errTooBig
 	}
 	p.cursor = savedCursor
@@ -274,7 +271,7 @@ func Unmarshal(input []byte, file *File) error {
 	}
 
 	// parse the index
-	p.cursor = file.OffsetToIndex + IndexHeaderLen
+	p.cursor = uint64(file.OffsetToIndex + IndexHeaderLen)
 	for i = 0; ; i++ {
 		var (
 			idxEntryHeader IndexEntryHeader
@@ -301,17 +298,17 @@ func Unmarshal(input []byte, file *File) error {
 		if endNamePos < 0 {
 			return errMalformedIndexFileName
 		}
-		if endNamePos > 1024 {
+		if endNamePos > limitFileNameLength {
 			return errIndexFileNameTooBig
 		}
-		if uint64(p.cursor+uint32(endNamePos)) > file.SignaturesHeader.FileSize {
+		if (p.cursor + uint64(endNamePos)) > file.SignaturesHeader.FileSize {
 			return errIndexFileNameOverrun
 
 		}
-		idxEntry.FileName = string(input[int(p.cursor):int(p.cursor+uint32(endNamePos))])
+		idxEntry.FileName = string(input[p.cursor : p.cursor+uint64(endNamePos)])
 
 		// manually move the cursor to the end of the filename
-		p.cursor = p.cursor + uint32(endNamePos) + 1
+		p.cursor = p.cursor + uint64(endNamePos) + 1
 
 		file.Index = append(file.Index, idxEntry)
 	}
@@ -321,7 +318,7 @@ func Unmarshal(input []byte, file *File) error {
 	for _, idxEntry := range file.Index {
 		var entry Entry
 		// move the cursor to the location of the content
-		p.cursor = idxEntry.OffsetToContent
+		p.cursor = uint64(idxEntry.OffsetToContent)
 		err = p.parse(input, &entry.Data, int(idxEntry.Size))
 		if err != nil {
 			return fmt.Errorf("content parsing failed: %v", err)
@@ -361,7 +358,7 @@ func (file *File) Marshal() ([]byte, error) {
 		return nil, err
 	}
 
-	if file.OffsetToIndex < MinMarSize {
+	if file.OffsetToIndex < uint32(limitMinFileSize) {
 		return nil, errOffsetTooSmall
 	}
 	err = binary.Write(buf, binary.BigEndian, file.OffsetToIndex)
