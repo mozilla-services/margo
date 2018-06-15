@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"go.mozilla.org/mar"
+
 	"gopkg.in/yaml.v2"
 )
 

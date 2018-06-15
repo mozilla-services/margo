@@ -204,13 +204,11 @@ func Unmarshal(input []byte, file *File) error {
 	if file.SignaturesHeader.FileSize != uint64(file.OffsetToIndex+file.IndexHeader.Size+IndexHeaderLen) {
 		return errMalformedFileSize
 	}
-	// the maximum size we'll agree to parse is 2GB.
-	// People From The Future, if this isn't large enough for you, feel
-	// free to increase it, and have some self reflection because 640k
-	// oughta be enough for everybody!
 	if file.SignaturesHeader.FileSize > limitMaxFileSize {
 		return errTooBig
 	}
+
+	// go back to where we were
 	p.cursor = savedCursor
 
 	// Parse each signature and append them to the File
@@ -227,7 +225,13 @@ func Unmarshal(input []byte, file *File) error {
 
 		sig.AlgorithmID = sigEntryHeader.AlgorithmID
 		sig.Size = sigEntryHeader.Size
+		if sig.Size > limitMaxSignatureSize {
+			return errSignatureTooBig
+		}
 		sig.Algorithm = getSigAlgNameFromID(sig.AlgorithmID)
+		if sig.Algorithm == "unknown" {
+			return errSignatureUnknown
+		}
 
 		sig.Data = make([]byte, sig.Size, sig.Size)
 		err = p.parse(input, &sig.Data, int(sig.Size))
@@ -257,6 +261,9 @@ func Unmarshal(input []byte, file *File) error {
 
 		as.BlockID = ash.BlockID
 		as.BlockSize = ash.BlockSize
+		if as.BlockSize > limitMaxAdditionalDataSize {
+			return errAdditionalDataTooBig
+		}
 		dataSize := ash.BlockSize - AdditionalSectionsEntryHeaderLen
 		as.Data = make([]byte, dataSize, dataSize)
 
@@ -292,6 +299,9 @@ func Unmarshal(input []byte, file *File) error {
 		idxEntry.Size = idxEntryHeader.Size
 		idxEntry.Flags = idxEntryHeader.Flags
 		idxEntry.OffsetToContent = idxEntryHeader.OffsetToContent
+		if uint64(idxEntry.OffsetToContent+idxEntry.Size) > file.SignaturesHeader.FileSize {
+			return errMalformedContentOverrun
+		}
 
 		endNamePos := bytes.Index(input[p.cursor:], []byte("\x00"))
 
@@ -320,13 +330,11 @@ func Unmarshal(input []byte, file *File) error {
 	file.Content = make(map[string]Entry)
 	for _, idxEntry := range file.Index {
 		var entry Entry
+		// copy the content from the input buffer into the entry data.
+		// security checks were already done when parsing the index, so
+		// we know this is safe
+		entry.Data = append(entry.Data, input[idxEntry.OffsetToContent:idxEntry.OffsetToContent+idxEntry.Size]...)
 		// move the cursor to the location of the content
-		p.cursor = uint64(idxEntry.OffsetToContent)
-		err = p.parse(input, &entry.Data, int(idxEntry.Size))
-		if err != nil {
-			return fmt.Errorf("content parsing failed: %v", err)
-		}
-		//entry.Data = append(entry.Data, input[idxEntry.OffsetToContent:idxEntry.OffsetToContent+idxEntry.Size]...)
 		// files in MAR archives can be compressed with xz, so we test
 		// the first 6 bytes to check for that
 		//                                                             /---XZ's magic number--\
@@ -424,13 +432,22 @@ func (file *File) Marshal() ([]byte, error) {
 		offsetToContent += int(as.BlockSize)
 	}
 
-	// we need to marshal the content according to the index
+	// We need to create the index that will go to the end of the file.
+	// For that, we create a new buffer where index entries will be written to,
+	// then process each index entry, add them to the index buffer and add the
+	// content to the main buffer. At the end, we append the index buffer to the
+	// main buffer.
 	idxBuf := new(bytes.Buffer)
 	err = binary.Write(idxBuf, binary.BigEndian, file.IndexHeader)
 	if err != nil {
 		return nil, err
 	}
 	for _, idx := range file.Index {
+		// Write the index entry piece by piece:
+		// first we put the offset to content
+		// then the size of the content
+		// then the permission flags
+		// and finally the filename, with a null terminator
 		err = binary.Write(idxBuf, binary.BigEndian, uint32(offsetToContent))
 		if err != nil {
 			return nil, err
@@ -451,7 +468,7 @@ func (file *File) Marshal() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		// copy the content to the main buffer
+		// with the index in place, we copy the content to the main buffer
 		buf.Write(file.Content[idx.FileName].Data)
 		offsetToContent += int(idx.Size)
 	}

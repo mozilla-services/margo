@@ -20,6 +20,7 @@ func (file *File) VerifyAll() (keys []string, isSigned bool, err error) {
 		return
 	}
 	hashed := sha512.Sum384(signedBlock)
+	debugPrint("sha384 for signature: %x\n", hashed)
 	for _, sig := range file.Signatures {
 		for keyName, keyPem := range FirefoxReleasePublicKeys {
 			block, _ := pem.Decode([]byte(keyPem))
@@ -38,6 +39,8 @@ func (file *File) VerifyAll() (keys []string, isSigned bool, err error) {
 				// signature is valid
 				keys = append(keys, keyName)
 				isSigned = true
+			} else {
+				debugPrint("signature verification failed with %q\n", keyName)
 			}
 		}
 	}
