@@ -59,6 +59,18 @@ func Example() {
 var miniMar = mar.File{
 	MarID:         "MAR1",
 	OffsetToIndex: 1664,
+	AdditionalSectionsHeader: mar.AdditionalSectionsHeader{
+		NumAdditionalSections: 1,
+	},
+	AdditionalSections: []mar.AdditionalSection{
+		mar.AdditionalSection{
+			mar.AdditionalSectionEntryHeader{
+				BlockSize: 23,
+				BlockID:   1,
+			},
+			[]byte("firefox-mozilla-esr1664"),
+		},
+	},
 	Content: map[string]mar.Entry{
 		"/foo/bar": mar.Entry{
 			Data:         []byte("aaaaaaaaaaaaaaaaaaaaa"),
