@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -8,8 +9,6 @@ import (
 	"strings"
 
 	"go.mozilla.org/mar"
-
-	"gopkg.in/yaml.v2"
 )
 
 func main() {
@@ -22,7 +21,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	out, err := yaml.Marshal(file)
+	out, err := json.MarshalIndent(file, "", "    ")
 	if err != nil {
 		log.Fatal(err)
 	}

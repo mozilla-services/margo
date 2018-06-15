@@ -61,7 +61,7 @@ type File struct {
 	AdditionalSections       []AdditionalSection      `json:"additional_sections" yaml:"additional_sections"`
 	IndexHeader              IndexHeader              `json:"index_header" yaml:"index_header"`
 	Index                    []IndexEntry             `json:"index" yaml:"index"`
-	Content                  map[string]Entry         `json:"content" yaml:"-"`
+	Content                  map[string]Entry         `json:"-" yaml:"-"`
 
 	// marshalForSignature is used to tell the marshaller to exclude
 	// signature data when preparing a file for signing
