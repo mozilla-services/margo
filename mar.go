@@ -158,17 +158,14 @@ type IndexEntryHeader struct {
 
 // Unmarshal takes an unparsed MAR file as input and parses it into a File struct
 func Unmarshal(input []byte, file *File) error {
-	var (
-		i uint32
-		p parser
-	)
 	if len(input) < limitMinFileSize {
 		return fmt.Errorf("input is smaller than minimum MAR size and cannot be parsed")
 	}
+	p := newParser(input)
 
 	// Parse the MAR ID
 	marid := make([]byte, MarIDLen, MarIDLen)
-	err := p.parse(input, &marid, MarIDLen)
+	err := p.parse(&marid, MarIDLen)
 	if err != nil {
 		return fmt.Errorf("mar id parsing failed: %v", err)
 	}
@@ -178,13 +175,13 @@ func Unmarshal(input []byte, file *File) error {
 	}
 
 	// Parse the offset to the index
-	err = p.parse(input, &file.OffsetToIndex, OffsetToIndexLen)
+	err = p.parse(&file.OffsetToIndex, OffsetToIndexLen)
 	if err != nil {
 		return fmt.Errorf("offset parsing failed: %v", err)
 	}
 
 	// Parse the Signature header
-	err = p.parse(input, &file.SignaturesHeader, SignaturesHeaderLen)
+	err = p.parse(&file.SignaturesHeader, SignaturesHeaderLen)
 	if err != nil {
 		return fmt.Errorf("signature header parsing failed: %v", err)
 	}
@@ -197,7 +194,7 @@ func Unmarshal(input []byte, file *File) error {
 	// (because filesize is a uint64, for some reason...)
 	savedCursor := p.cursor
 	p.cursor = uint64(file.OffsetToIndex)
-	err = p.parse(input, &file.IndexHeader, IndexHeaderLen)
+	err = p.parse(&file.IndexHeader, IndexHeaderLen)
 	if err != nil {
 		return fmt.Errorf("index header parsing failed: %v", err)
 	}
@@ -212,13 +209,13 @@ func Unmarshal(input []byte, file *File) error {
 	p.cursor = savedCursor
 
 	// Parse each signature and append them to the File
-	for i = 0; i < file.SignaturesHeader.NumSignatures; i++ {
+	for i := uint32(0); i < file.SignaturesHeader.NumSignatures; i++ {
 		var (
 			sigEntryHeader SignatureEntryHeader
 			sig            Signature
 		)
 
-		err = p.parse(input, &sigEntryHeader, SignatureEntryHeaderLen)
+		err = p.parse(&sigEntryHeader, SignatureEntryHeaderLen)
 		if err != nil {
 			return fmt.Errorf("signature entry header parsing failed: %v", err)
 		}
@@ -234,7 +231,7 @@ func Unmarshal(input []byte, file *File) error {
 		}
 
 		sig.Data = make([]byte, sig.Size, sig.Size)
-		err = p.parse(input, &sig.Data, int(sig.Size))
+		err = p.parse(&sig.Data, int(sig.Size))
 		if err != nil {
 			return fmt.Errorf("signature data parsing failed: %v", err)
 		}
@@ -242,19 +239,19 @@ func Unmarshal(input []byte, file *File) error {
 	}
 
 	// Parse the additional sections header
-	err = p.parse(input, &file.AdditionalSectionsHeader, AdditionalSectionsHeaderLen)
+	err = p.parse(&file.AdditionalSectionsHeader, AdditionalSectionsHeaderLen)
 	if err != nil {
 		return fmt.Errorf("additional section header parsing failed: %v", err)
 	}
 
 	// Parse each additional section and append them to the File
-	for i = 0; i < file.AdditionalSectionsHeader.NumAdditionalSections; i++ {
+	for i := uint32(0); i < file.AdditionalSectionsHeader.NumAdditionalSections; i++ {
 		var (
 			ash AdditionalSectionEntryHeader
 			as  AdditionalSection
 		)
 
-		err = p.parse(input, &ash, AdditionalSectionsEntryHeaderLen)
+		err = p.parse(&ash, AdditionalSectionsEntryHeaderLen)
 		if err != nil {
 			return fmt.Errorf("additional section entry header parsing failed: %v", err)
 		}
@@ -267,7 +264,7 @@ func Unmarshal(input []byte, file *File) error {
 		dataSize := ash.BlockSize - AdditionalSectionsEntryHeaderLen
 		as.Data = make([]byte, dataSize, dataSize)
 
-		err = p.parse(input, &as.Data, int(dataSize))
+		err = p.parse(&as.Data, int(dataSize))
 		if err != nil {
 			return fmt.Errorf("additional section data parsing failed: %v", err)
 		}
@@ -282,7 +279,7 @@ func Unmarshal(input []byte, file *File) error {
 
 	// parse the index
 	p.cursor = uint64(file.OffsetToIndex + IndexHeaderLen)
-	for i = 0; ; i++ {
+	for i := 0; ; i++ {
 		var (
 			idxEntryHeader IndexEntryHeader
 			idxEntry       IndexEntry
@@ -291,7 +288,7 @@ func Unmarshal(input []byte, file *File) error {
 		if uint64(p.cursor) >= file.SignaturesHeader.FileSize {
 			break
 		}
-		err = p.parse(input, &idxEntryHeader, IndexEntryHeaderLen)
+		err = p.parse(&idxEntryHeader, IndexEntryHeaderLen)
 		if err != nil {
 			return fmt.Errorf("index entry parsing failed: %v", err)
 		}
@@ -335,7 +332,7 @@ func Unmarshal(input []byte, file *File) error {
 		// we know this is safe
 		entry.Data = make([]byte, idxEntry.Size, idxEntry.Size)
 		p.cursor = uint64(idxEntry.OffsetToContent)
-		err = p.parse(input, entry.Data, int(idxEntry.Size))
+		err = p.parse(entry.Data, int(idxEntry.Size))
 		if err != nil {
 			return err
 		}

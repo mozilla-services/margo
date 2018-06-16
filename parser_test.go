@@ -6,12 +6,10 @@ import (
 )
 
 func TestParser(t *testing.T) {
-	var (
-		p     parser
-		input = []byte("foobarbaz")
-	)
+	var input = []byte("foobarbaz")
+	p := newParser(input)
 	output := make([]byte, 9, 9)
-	err := p.parse(input, output, 9)
+	err := p.parse(output, 9)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,12 +19,10 @@ func TestParser(t *testing.T) {
 }
 
 func TestParserInputTooShort(t *testing.T) {
-	var (
-		p     parser
-		input = []byte("foobarbaz")
-	)
+	input := []byte("foobarbaz")
+	p := newParser(input)
 	output := make([]byte, 20, 20)
-	err := p.parse(input, output, 20)
+	err := p.parse(output, 20)
 	if err == nil {
 		t.Fatal("expected to fail with input too short but succeeded")
 	}
@@ -37,18 +33,16 @@ func TestParserInputTooShort(t *testing.T) {
 }
 
 func TestParserReadTwice(t *testing.T) {
-	var (
-		p     parser
-		input = []byte("foobarbaz")
-	)
+	input := []byte("foobarbaz")
+	p := newParser(input)
 	output := make([]byte, 9, 9)
-	err := p.parse(input, output, 9)
+	err := p.parse(output, 9)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// the second read of the same chunk must fail
 	p.cursor = 0
-	err = p.parse(input, output, 9)
+	err = p.parse(output, 9)
 	if err == nil {
 		t.Fatal("expected to fail with duplicate read but succeeded")
 	}
@@ -59,12 +53,10 @@ func TestParserReadTwice(t *testing.T) {
 }
 
 func TestParserReadInside(t *testing.T) {
-	var (
-		p     parser
-		input = []byte("foobarbaz")
-	)
+	input := []byte("foobarbaz")
+	p := newParser(input)
 	output := make([]byte, 9, 9)
-	err := p.parse(input, output, 9)
+	err := p.parse(output, 9)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +64,7 @@ func TestParserReadInside(t *testing.T) {
 	// previously read must fail
 	output2 := make([]byte, 4, 4)
 	p.cursor = 4
-	err = p.parse(input, output2, 4)
+	err = p.parse(output2, 4)
 	if err == nil {
 		t.Fatal("expected to fail with duplicate read but succeeded")
 	}
@@ -83,20 +75,18 @@ func TestParserReadInside(t *testing.T) {
 }
 
 func TestParserReadEnd(t *testing.T) {
-	var (
-		p     parser
-		input = []byte("aaaaaaaaafoobarbaz")
-	)
+	input := []byte("aaaaaaaaafoobarbaz")
+	p := newParser(input)
 	output := make([]byte, 9, 9)
 	p.cursor = 9
-	err := p.parse(input, output, 9)
+	err := p.parse(output, 9)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// the second read of a smaller chunk inside the chunk
 	// previously read must fail
 	p.cursor = 4
-	err = p.parse(input, output, 9)
+	err = p.parse(output, 9)
 	if err == nil {
 		t.Fatal("expected to fail with duplicate read but succeeded")
 	}

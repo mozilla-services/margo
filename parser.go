@@ -6,10 +6,12 @@ import (
 )
 
 // A parser is initialized to unmarshal a MAR file.
-// parsers keep counters to safely process a file and thus must
-// not be reused between files. They are also not thread safe,
-// so use one parser per thread/goroutine.
+// It keeps a cursor of the next read position and counters to safely
+// process a file and thus must not be reused between files. a parser
+// is not thread safe, so use one parser per thread/goroutine.
 type parser struct {
+	// input data being read
+	input []byte
 	// current position of the cursor in the file
 	cursor uint64
 	// readChunks is the list of chunks that have already been read
@@ -20,15 +22,19 @@ type chunk struct {
 	start, end uint64
 }
 
+func newParser(input []byte) *parser {
+	return &parser{input: input}
+}
+
 // parse reads from input and converts it into the target data structure.
 // it applies some basic security checks: first we're making sure we're not
 // reading more than what is available in input, then we check that the chunk
 // has not already been read by the parser. This prevents logic bomb attacks
 // where multiple index entries reference the same chunk of content.
-func (p *parser) parse(input []byte, data interface{}, readLen int) error {
+func (p *parser) parse(data interface{}, readLen int) error {
 	startPos := p.cursor
 	endPos := p.cursor + uint64(readLen)
-	if uint64(len(input)) < endPos {
+	if uint64(len(p.input)) < endPos {
 		return errInputTooShort
 	}
 	// verify that we're not trying to read a chunk that has already been read.
@@ -49,6 +55,6 @@ func (p *parser) parse(input []byte, data interface{}, readLen int) error {
 
 	// move the cursor forward
 	p.cursor = endPos
-	r := bytes.NewReader(input[startPos:endPos])
+	r := bytes.NewReader(p.input[startPos:endPos])
 	return binary.Read(r, binary.BigEndian, data)
 }
