@@ -1,7 +1,14 @@
 package mar
 
 import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/rsa"
+	"fmt"
+	"io/ioutil"
+	"log"
 	"math/big"
 	"os"
 	"testing"
@@ -13,14 +20,57 @@ func TestMain(m *testing.M) {
 }
 
 func TestSignMar(t *testing.T) {
-	signableMar := miniMar
-	signableMar.PrepareSignature(rsa2048Key, rsa2048Key.Public())
+	testSign(t, rsa2048Key, rsa2048Key.Public(), SigAlgRsaPkcs1Sha384)
+}
+
+func TestSignSHA1(t *testing.T) {
+	testSign(t, rsa2048Key, rsa2048Key.Public(), SigAlgRsaPkcs1Sha1)
+}
+
+func TestSignECDSAP256(t *testing.T) {
+	ecdsaPrivKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		log.Fatalf("ecdsa key generation failed with: %v", err)
+	}
+	testSign(t, ecdsaPrivKey, ecdsaPrivKey.Public(), SigAlgEcdsaP256Sha256)
+}
+
+func TestSignECDSAP384(t *testing.T) {
+	ecdsaPrivKey, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		log.Fatalf("ecdsa key generation failed with: %v", err)
+	}
+	testSign(t, ecdsaPrivKey, ecdsaPrivKey.Public(), SigAlgEcdsaP384Sha384)
+}
+
+func testSign(t *testing.T, key crypto.PrivateKey, pub crypto.PublicKey, alg uint32) {
+	signableMar := New()
+	signableMar.AddContent([]byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "/foo/bar", 0600)
+	signableMar.PrepareSignature(key, pub)
+	// override the signature algorithm
+	signableMar.Signatures[0].AlgorithmID = alg
 	err := signableMar.FinalizeSignatures()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputMar, err := signableMar.Marshal()
+	if err != nil {
+		t.Fatalf("mar marshalling failed with error: %v", err)
+	}
+	ioutil.WriteFile(fmt.Sprintf("/tmp/%d.mar", alg), outputMar, 0640)
+	// reparse the MAR to make sure it goes through fine
+	var reparsedMar File
+	err = Unmarshal(outputMar, &reparsedMar)
+	if err != nil {
+		t.Fatalf("mar unmarshalling failed with error: %v", err)
+	}
+	err = reparsedMar.VerifySignature(pub)
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
+// this is a valid 2047 bits RSA just to mess with signature size rounding
 var rsa2048Key = &rsa.PrivateKey{
 	PublicKey: rsa.PublicKey{
 		N: fromBase10("14314132931241006650998084889274020608918049032671858325988396851334124245188214251956198731333464217832226406088020736932173064754214329009979944037640912127943488972644697423190955557435910767690712778463524983667852819010259499695177313115447116110358524558307947613422897787329221478860907963827160223559690523660574329011927531289655711860504630573766609239332569210831325633840174683944553667352219670930408593321661375473885147973879086994006440025257225431977751512374815915392249179976902953721486040787792801849818254465486633791826766873076617116727073077821584676715609985777563958286637185868165868520557"),
