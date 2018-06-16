@@ -12,6 +12,7 @@ import (
 	"encoding/asn1"
 	"encoding/base64"
 	"hash"
+	"math"
 	"math/big"
 )
 
@@ -38,7 +39,10 @@ func (file *File) PrepareSignature(key crypto.PrivateKey, pubkey crypto.PublicKe
 	switch pubkey.(type) {
 	case *rsa.PublicKey:
 		sig.AlgorithmID = SigAlgRsaPkcs1Sha384
-		sig.Size = uint32(pubkey.(*rsa.PublicKey).N.BitLen() / 8)
+		// accept keys that aren't multiples of 8 and round them up to end up with the correct
+		// byte size. eg. 2047/8 = 255.875 = 256
+		sig.Size = uint32(math.Round(float64(pubkey.(*rsa.PublicKey).N.BitLen()) / 8.0))
+		debugPrint("rsa bit len: %d\n", sig.Size)
 	case *ecdsa.PublicKey:
 		sig.AlgorithmID, sig.Size = getEcdsaInfo(pubkey.(*ecdsa.PublicKey).Params().Name)
 		if sig.AlgorithmID == 0 || sig.Size == 0 {

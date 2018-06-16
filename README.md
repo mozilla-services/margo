@@ -3,6 +3,8 @@
 [![Build Status](https://travis-ci.org/mozilla-services/margo.svg?branch=master)](https://travis-ci.org/mozilla-services/margo)
 [![GoDoc](https://godoc.org/go.mozilla.org/mar?status.svg)](https://godoc.org/go.mozilla.org/mar) 
 
+**Requires Go 1.10**
+
 Margo is a fairly secure MAR parser written to allow
 [autograph](https://github.com/mozilla-services/autograph) to sign Firefox
 MAR files. Its primary focus is signature, but it can also be used to parse,
