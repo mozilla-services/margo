@@ -23,32 +23,6 @@ func TestUnmarshal(t *testing.T) {
 	}
 }
 
-func TestMarshalBadIndexHeaderSize(t *testing.T) {
-	badMar := miniMar
-	badMar.IndexHeader.Size = 3
-	_, err := badMar.Marshal()
-	if err == nil {
-		t.Fatal("Expected to fail with bad index size but succeeded")
-	}
-	if err.Error() != "marshalled index has size 21 when size 3 was expected" {
-		t.Fatalf("Expected to fail with error 'marshalled index has size 21 when size 3 was expected' but failed with error %q", err)
-	}
-	t.Log(err)
-}
-
-func TestMarshalIndexOffsetTooSmall(t *testing.T) {
-	badMar := miniMar
-	badMar.OffsetToIndex = 20
-	_, err := badMar.Marshal()
-	if err == nil {
-		t.Fatalf("Expected to fail with %q but succeeded", errOffsetTooSmall)
-	}
-	if err != errOffsetTooSmall {
-		t.Fatalf("Expected to fail with error %q but failed with error %q", errOffsetTooSmall, err)
-	}
-	t.Log(err)
-}
-
 func TestMarshalBadMarID(t *testing.T) {
 	badMar := miniMar
 	badMar.MarID = "foo"

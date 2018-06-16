@@ -374,9 +374,6 @@ func (file *File) Marshal() ([]byte, error) {
 		return nil, err
 	}
 
-	if file.OffsetToIndex < uint32(limitMinFileSize) {
-		return nil, errOffsetTooSmall
-	}
 	err = binary.Write(buf, binary.BigEndian, file.OffsetToIndex)
 	if err != nil {
 		return nil, err
@@ -440,13 +437,8 @@ func (file *File) Marshal() ([]byte, error) {
 	// We need to create the index that will go to the end of the file.
 	// For that, we create a new buffer where index entries will be written to,
 	// then process each index entry, add them to the index buffer and add the
-	// content to the main buffer. At the end, we append the index buffer to the
-	// main buffer.
+	// content to the main buffer.
 	idxBuf := new(bytes.Buffer)
-	err = binary.Write(idxBuf, binary.BigEndian, file.IndexHeader)
-	if err != nil {
-		return nil, err
-	}
 	for _, idx := range file.Index {
 		// Write the index entry piece by piece:
 		// first we put the offset to content
@@ -473,26 +465,29 @@ func (file *File) Marshal() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		// with the index in place, we copy the content to the main buffer
+		// with the index in place, we append the content to the main buffer
+		// and increase the value of offsetToContent to reflect how far into
+		// the main buffer we will be writing next
 		buf.Write(file.Content[idx.FileName].Data)
 		offsetToContent += int(idx.Size)
 	}
-	// At this point, the side of idxBuf should be the size of the index header
-	// plus the size of all index entries. We do a sanity check to make sure that
-	// the value of file.IndexHeader.Size (the size of all index entries) matches
-	// the size of the index we just created
-	if uint32(idxBuf.Len())-IndexHeaderLen != file.IndexHeader.Size {
-		return nil, fmt.Errorf("marshalled index has size %d when size %d was expected",
-			idxBuf.Len()-IndexHeaderLen, file.IndexHeader.Size)
+	// rewrite the index header size now that we know it's final size
+	file.IndexHeader.Size = uint32(idxBuf.Len())
+	finalIdxBuf := new(bytes.Buffer)
+	err = binary.Write(finalIdxBuf, binary.BigEndian, file.IndexHeader)
+	if err != nil {
+		return nil, err
 	}
+	finalIdxBuf.Write(idxBuf.Bytes())
+
 	output = append(output, buf.Bytes()...)
-	output = append(output, idxBuf.Bytes()...)
+	output = append(output, finalIdxBuf.Bytes()...)
 
 	// update the total size directly in the output data.
 	// this is basically the size of both the main and index buffer, but also the
 	// size of any future signatures if we're marshalling for signature (otherwise
 	// sigSizes is zero because the signature data is already in buf)
-	file.SignaturesHeader.FileSize = uint64(buf.Len() + idxBuf.Len() + sigSizes)
+	file.SignaturesHeader.FileSize = uint64(buf.Len() + finalIdxBuf.Len() + sigSizes)
 	fsizeBuf := new(bytes.Buffer)
 	err = binary.Write(fsizeBuf, binary.BigEndian, file.SignaturesHeader.FileSize)
 	if err != nil {
@@ -502,6 +497,9 @@ func (file *File) Marshal() ([]byte, error) {
 
 	// update the offset to index directly in the output data
 	file.OffsetToIndex = uint32(buf.Len() + sigSizes)
+	if file.OffsetToIndex < uint32(limitMinFileSize) {
+		return nil, errOffsetTooSmall
+	}
 	offsetBuf := new(bytes.Buffer)
 	err = binary.Write(offsetBuf, binary.BigEndian, file.OffsetToIndex)
 	if err != nil {
@@ -514,6 +512,9 @@ func (file *File) Marshal() ([]byte, error) {
 
 // AddContent stores content in a MAR and creates a new entry in the index
 func (file *File) AddContent(data []byte, name string, flags uint32) error {
+	if file.Content == nil {
+		file.Content = make(map[string]Entry)
+	}
 	if _, ok := file.Content[name]; ok {
 		return errDupContent
 	}

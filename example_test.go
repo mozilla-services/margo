@@ -12,34 +12,33 @@ import (
 )
 
 func Example() {
-	inputMar := miniMar
-
-	// flush the signatures if any exists
-	inputMar.SignaturesHeader.NumSignatures = uint32(0)
-	inputMar.Signatures = nil
+	marFile := mar.File{
+		MarID: "MAR1",
+	}
+	marFile.AddContent([]byte("cariboumaurice"), "/foo/bar", 640)
 
 	// make a new rsa key and add it for signature
 	rsaPrivKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		log.Fatalf("rsa key generation failed with: %v", err)
 	}
-	inputMar.PrepareSignature(rsaPrivKey, rsaPrivKey.Public())
+	marFile.PrepareSignature(rsaPrivKey, rsaPrivKey.Public())
 
 	// make a new ecdsa key and add it for signature
 	ecdsaPrivKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		log.Fatalf("ecdsa key generation failed with: %v", err)
 	}
-	inputMar.PrepareSignature(ecdsaPrivKey, ecdsaPrivKey.Public())
+	marFile.PrepareSignature(ecdsaPrivKey, ecdsaPrivKey.Public())
 
 	// once both keys are added to the file, finalize the signature
-	err = inputMar.FinalizeSignatures()
+	err = marFile.FinalizeSignatures()
 	if err != nil {
 		log.Fatalf("mar signature failed with error: %v", err)
 	}
 
 	// write out the MAR file
-	outputMar, err := inputMar.Marshal()
+	outputMar, err := marFile.Marshal()
 	if err != nil {
 		log.Fatalf("mar marshalling failed with error: %v", err)
 	}
@@ -51,43 +50,17 @@ func Example() {
 		log.Fatalf("mar unmarshalling failed with error: %v", err)
 	}
 
+	// verify the signatures
+	err = reparsedMar.VerifySignature(rsaPrivKey.Public())
+	if err != nil {
+		log.Fatalf("failed to verify rsa signature: %v", err)
+	}
+	err = reparsedMar.VerifySignature(ecdsaPrivKey.Public())
+	if err != nil {
+		log.Fatalf("failed to verify ecdsa signature: %v", err)
+	}
+
 	fmt.Printf("MAR file signed and parsed without error")
 
 	// Output: MAR file signed and parsed without error
-}
-
-var miniMar = mar.File{
-	MarID:         "MAR1",
-	OffsetToIndex: 1664,
-	AdditionalSectionsHeader: mar.AdditionalSectionsHeader{
-		NumAdditionalSections: 1,
-	},
-	AdditionalSections: []mar.AdditionalSection{
-		mar.AdditionalSection{
-			mar.AdditionalSectionEntryHeader{
-				BlockSize: 23,
-				BlockID:   1,
-			},
-			[]byte("firefox-mozilla-esr1664"),
-		},
-	},
-	Content: map[string]mar.Entry{
-		"/foo/bar": mar.Entry{
-			Data:         []byte("aaaaaaaaaaaaaaaaaaaaa"),
-			IsCompressed: false,
-		},
-	},
-	IndexHeader: mar.IndexHeader{
-		Size: 21,
-	},
-	Index: []mar.IndexEntry{
-		mar.IndexEntry{
-			mar.IndexEntryHeader{
-				OffsetToContent: 400,
-				Size:            21,
-				Flags:           600,
-			},
-			"/foo/bar",
-		},
-	},
 }

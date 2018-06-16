@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"fmt"
@@ -13,6 +15,9 @@ import (
 
 func main() {
 	var file, refile mar.File
+	if len(os.Args) < 3 {
+		log.Fatal("usage: %s <input mar> <output mar>", os.Args[0])
+	}
 	input, err := ioutil.ReadFile(os.Args[1])
 	if err != nil {
 		log.Fatal("Error while opening fd", err)
@@ -27,16 +32,16 @@ func main() {
 	file.Signatures = nil
 
 	// Add both keys for signature, then finalize
-	rsaKey1, err := rsa.GenerateKey(rand.Reader, 2048)
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		log.Fatal(err)
 	}
-	rsaKey2, err := rsa.GenerateKey(rand.Reader, 2048)
+	ecdsaKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		log.Fatal(err)
 	}
-	file.PrepareSignature(rsaKey1)
-	file.PrepareSignature(rsaKey2)
+	file.PrepareSignature(rsaKey, rsaKey.Public())
+	file.PrepareSignature(ecdsaKey, ecdsaKey.Public())
 
 	// once both keys are added to the file, finalize the signature
 	err = file.FinalizeSignatures()
@@ -51,9 +56,18 @@ func main() {
 	}
 
 	fmt.Println("--- MAR file has been resigned ---")
-	ioutil.WriteFile("/tmp/resigned.mar", output, 0644)
+	ioutil.WriteFile(os.Args[2], output, 0644)
 	// reparse for testing, and verify signature
 	err = mar.Unmarshal(output, &refile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = refile.VerifySignature(rsaKey.Public())
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = refile.VerifySignature(ecdsaKey.Public())
 	if err != nil {
 		log.Fatal(err)
 	}

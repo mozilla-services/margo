@@ -26,12 +26,12 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Printf("%s\n", out)
-	validKeys, isSigned, err := file.VerifyAll()
+	validKeys, isSigned, err := file.VerifyWithFirefoxKeys()
 	if err != nil {
 		log.Fatal(err)
 	}
 	if !isSigned {
-		log.Fatal("signature: no valid signature found")
+		fmt.Println("signature: no valid signature found")
 	} else {
 		fmt.Printf("signature: OK, valid signature from %s\n", strings.Join(validKeys, ","))
 	}

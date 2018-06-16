@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/asn1"
+	"encoding/base64"
 	"hash"
 	"math/big"
 )
@@ -62,11 +63,14 @@ func (file *File) FinalizeSignatures() error {
 	for i := range file.Signatures {
 		// hash the signature block using the appropriate algorithm
 		var md hash.Hash
+		h := crypto.SHA384
 		switch file.Signatures[i].AlgorithmID {
 		case SigAlgRsaPkcs1Sha1:
 			md = sha1.New()
+			h = crypto.SHA1
 		case SigAlgEcdsaP256Sha256:
 			md = sha256.New()
+			h = crypto.SHA256
 		case SigAlgRsaPkcs1Sha384, SigAlgEcdsaP384Sha384:
 			md = sha512.New384()
 		}
@@ -74,7 +78,7 @@ func (file *File) FinalizeSignatures() error {
 
 		// call the signer interface of the private key to sign the hash
 		sigData, err := file.Signatures[i].privateKey.(crypto.Signer).Sign(
-			rand.Reader, md.Sum(nil), crypto.SHA384)
+			rand.Reader, md.Sum(nil), h)
 		if err != nil {
 			return err
 		}
@@ -109,6 +113,7 @@ type ecdsaSignature struct {
 }
 
 func convertAsn1EcdsaToRS(sigData []byte, sigLen int) ([]byte, error) {
+	debugPrint("asn1.ecdsa: %s\n", base64.StdEncoding.EncodeToString(sigData))
 	var ecdsaSig ecdsaSignature
 	_, err := asn1.Unmarshal(sigData, &ecdsaSig)
 	if err != nil {
