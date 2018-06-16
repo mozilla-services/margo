@@ -6,7 +6,10 @@ import (
 )
 
 func TestMarshal(t *testing.T) {
-	_, err := miniMar.Marshal()
+	m := New()
+	m.AddContent([]byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "/foo/bar", 0600)
+	m.AddProductInfo("caribou maurice v1.2")
+	_, err := m.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,8 +26,25 @@ func TestUnmarshal(t *testing.T) {
 	}
 }
 
+func TestMarshalUnmarshal(t *testing.T) {
+	m := New()
+	m.AddContent([]byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "/foo/bar", 0600)
+	m.AddProductInfo("caribou maurice v1.2")
+	m.AddAdditionalSection([]byte("foo bar baz"), uint32(1664))
+	m.AddContent([]byte("bcdef"), "/foo/baz", 0600)
+	o, err := m.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reparsed File
+	err = Unmarshal(o, &reparsed)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMarshalBadMarID(t *testing.T) {
-	badMar := miniMar
+	badMar := New()
 	badMar.MarID = "foo"
 	_, err := badMar.Marshal()
 	if err == nil {
@@ -37,7 +57,7 @@ func TestMarshalBadMarID(t *testing.T) {
 }
 
 func TestAddingContent(t *testing.T) {
-	newMar := miniMar
+	newMar := New()
 	var (
 		data         = []byte("cariboumaurice")
 		name         = "/foo/bar/baz"
@@ -64,13 +84,17 @@ func TestAddingContent(t *testing.T) {
 }
 
 func TestAddingDupContent(t *testing.T) {
-	newMar := miniMar
+	newMar := New()
 	var (
 		data         = []byte("cariboumaurice")
 		name         = "/foo/bar"
 		flags uint32 = 640
 	)
 	err := newMar.AddContent(data, name, flags)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = newMar.AddContent(data, name, flags)
 	if err == nil {
 		t.Fatal("expected to fail due to duplicated content but didn't")
 	}
@@ -78,30 +102,6 @@ func TestAddingDupContent(t *testing.T) {
 		t.Fatalf("expected to fail with duplicated content error but failed with: %v", err)
 	}
 	t.Log(err)
-}
-
-var miniMar = File{
-	MarID:         "MAR1",
-	OffsetToIndex: 1664,
-	Content: map[string]Entry{
-		"/foo/bar": Entry{
-			Data:         []byte("aaaaaaaaaaaaaaaaaaaaa"),
-			IsCompressed: false,
-		},
-	},
-	IndexHeader: IndexHeader{
-		Size: 21,
-	},
-	Index: []IndexEntry{
-		IndexEntry{
-			IndexEntryHeader{
-				OffsetToContent: 400,
-				Size:            21,
-				Flags:           600,
-			},
-			"/foo/bar",
-		},
-	},
 }
 
 // $ hexdump -v -e '16/1 "_x%02X" "\n"' /tmp/o.mar | sed 's/_/\\/g; s/\\x  //g; s/.*/    "&"/; s/$/ +/'

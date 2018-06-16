@@ -156,6 +156,14 @@ type IndexEntryHeader struct {
 	Flags uint32 `json:"flags" yaml:"flags"`
 }
 
+// New returns an initialized MAR data structure
+func New() *File {
+	return &File{
+		MarID:   "MAR1",
+		Content: make(map[string]Entry),
+	}
+}
+
 // Unmarshal takes an unparsed MAR file as input and parses it into a File struct
 func Unmarshal(input []byte, file *File) error {
 	if len(input) < limitMinFileSize {
@@ -205,7 +213,7 @@ func Unmarshal(input []byte, file *File) error {
 		return errTooBig
 	}
 
-	// go back to where we were
+	// go back to the beginning of the signatures block
 	p.cursor = savedCursor
 
 	// Parse each signature and append them to the File
@@ -245,6 +253,9 @@ func Unmarshal(input []byte, file *File) error {
 	}
 
 	// Parse each additional section and append them to the File
+	if file.AdditionalSectionsHeader.NumAdditionalSections == 0 {
+		goto parseIndex
+	}
 	for i := uint32(0); i < file.AdditionalSectionsHeader.NumAdditionalSections; i++ {
 		var (
 			ash AdditionalSectionEntryHeader
@@ -259,6 +270,7 @@ func Unmarshal(input []byte, file *File) error {
 		as.BlockID = ash.BlockID
 		as.BlockSize = ash.BlockSize
 		if as.BlockSize > limitMaxAdditionalDataSize {
+			debugPrint("block size %d is larger than limit %d\n", as.BlockSize, limitMaxAdditionalDataSize)
 			return errAdditionalDataTooBig
 		}
 		dataSize := ash.BlockSize - AdditionalSectionsEntryHeaderLen
@@ -278,6 +290,7 @@ func Unmarshal(input []byte, file *File) error {
 	}
 
 	// parse the index
+parseIndex:
 	p.cursor = uint64(file.OffsetToIndex + IndexHeaderLen)
 	for i := 0; ; i++ {
 		var (
@@ -509,9 +522,6 @@ func (file *File) Marshal() ([]byte, error) {
 
 // AddContent stores content in a MAR and creates a new entry in the index
 func (file *File) AddContent(data []byte, name string, flags uint32) error {
-	if file.Content == nil {
-		file.Content = make(map[string]Entry)
-	}
 	if _, ok := file.Content[name]; ok {
 		return errDupContent
 	}
@@ -524,4 +534,22 @@ func (file *File) AddContent(data []byte, name string, flags uint32) error {
 		name,
 	})
 	return nil
+}
+
+// AddAdditionalSection stores data in the additional section of a MAR
+func (file *File) AddAdditionalSection(data []byte, blockID uint32) {
+	file.AdditionalSections = append(file.AdditionalSections, AdditionalSection{
+		AdditionalSectionEntryHeader{
+			BlockSize: uint32(len(data) + AdditionalSectionsEntryHeaderLen),
+			BlockID:   blockID,
+		},
+		data,
+	})
+	file.AdditionalSectionsHeader.NumAdditionalSections++
+}
+
+// AddProductInfo adds a product information string (typically, the version of firefox)
+// into the additional sections of a MAR
+func (file *File) AddProductInfo(productInfo string) {
+	file.AddAdditionalSection([]byte(productInfo), BlockIDProductInfo)
 }

@@ -12,9 +12,7 @@ import (
 )
 
 func Example() {
-	marFile := mar.File{
-		MarID: "MAR1",
-	}
+	marFile := mar.New()
 	marFile.AddContent([]byte("cariboumaurice"), "/foo/bar", 640)
 
 	// make a new rsa key and add it for signature
