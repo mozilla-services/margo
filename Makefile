@@ -7,10 +7,10 @@ vet:
 	go vet -composites=false go.mozilla.org/mar
 
 test:
-	go test -covermode=count -coverprofile=coverage_mar.out go.mozilla.org/mar
+	go test -covermode=count -coverprofile=coverage.out go.mozilla.org/mar
 
 coverage: test
-	go tool cover -html=coverage_mar.out
+	go tool cover -html=coverage.out
 
 getkeys:
 	bash get_firefox_keys.sh
