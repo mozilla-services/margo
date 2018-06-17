@@ -253,9 +253,6 @@ func Unmarshal(input []byte, file *File) error {
 	}
 
 	// Parse each additional section and append them to the File
-	if file.AdditionalSectionsHeader.NumAdditionalSections == 0 {
-		goto parseIndex
-	}
 	for i := uint32(0); i < file.AdditionalSectionsHeader.NumAdditionalSections; i++ {
 		var (
 			ash AdditionalSectionEntryHeader
@@ -290,7 +287,6 @@ func Unmarshal(input []byte, file *File) error {
 	}
 
 	// parse the index
-parseIndex:
 	p.cursor = uint64(file.OffsetToIndex + IndexHeaderLen)
 	for i := 0; ; i++ {
 		var (
@@ -450,6 +446,9 @@ func (file *File) Marshal() ([]byte, error) {
 	// content to the main buffer.
 	idxBuf := new(bytes.Buffer)
 	for _, idx := range file.Index {
+		if _, ok := file.Content[idx.FileName]; !ok {
+			return nil, errIndexBadContentReference
+		}
 		// Write the index entry piece by piece:
 		// first we put the offset to content
 		// then the size of the content
@@ -459,7 +458,7 @@ func (file *File) Marshal() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		err = binary.Write(idxBuf, binary.BigEndian, idx.Size)
+		err = binary.Write(idxBuf, binary.BigEndian, uint32(len(file.Content[idx.FileName].Data)))
 		if err != nil {
 			return nil, err
 		}
@@ -507,7 +506,7 @@ func (file *File) Marshal() ([]byte, error) {
 
 	// update the offset to index directly in the output data
 	file.OffsetToIndex = uint32(buf.Len() + sigSizes)
-	if file.OffsetToIndex < uint32(limitMinFileSize) {
+	if file.OffsetToIndex < uint32(limitMinFileSize-IndexHeaderLen) {
 		return nil, errOffsetTooSmall
 	}
 	offsetBuf := new(bytes.Buffer)
