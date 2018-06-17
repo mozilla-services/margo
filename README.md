@@ -1,4 +1,4 @@
-# MARGO: A Mozilla ARchive file handling library written in Go
+# MARGO: Mozilla ARchive library written in Go
 
 [![Build Status](https://travis-ci.org/mozilla-services/margo.svg?branch=master)](https://travis-ci.org/mozilla-services/margo)
 [![GoDoc](https://godoc.org/go.mozilla.org/mar?status.svg)](https://godoc.org/go.mozilla.org/mar) 
