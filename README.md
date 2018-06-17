@@ -2,6 +2,7 @@
 
 [![Build Status](https://travis-ci.org/mozilla-services/margo.svg?branch=master)](https://travis-ci.org/mozilla-services/margo)
 [![GoDoc](https://godoc.org/go.mozilla.org/mar?status.svg)](https://godoc.org/go.mozilla.org/mar) 
+[![Coverage Status](https://coveralls.io/repos/github/mozilla-services/margo/badge.svg?branch=master)](https://coveralls.io/github/mozilla-services/margo?branch=master)
 
 `import "go.mozilla.org/mar"`
 
