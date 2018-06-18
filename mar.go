@@ -278,6 +278,9 @@ func Unmarshal(input []byte, file *File) error {
 
 	// evaluate the first index entry and if the offset to content is set to byte 8,
 	// we have an old MAR that has no signature or additional sections
+	if len(file.Index) < 1 {
+		return errIndexTooSmall
+	}
 	if file.Index[0].OffsetToContent == MarIDLen+OffsetToIndexLen {
 		file.Revision = 2005
 		// use the input len as a file size since we don't have one in the headers

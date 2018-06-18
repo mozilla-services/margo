@@ -71,3 +71,21 @@ func TestBadIndexReference(t *testing.T) {
 		t.Fatalf("expected to fail with %q but failed with %v", errIndexBadContentReference, err)
 	}
 }
+
+func TestEmptyIndex(t *testing.T) {
+	var f File
+	var emptyIndex = []byte("MAR1\x00\x00\x00\x88000000000000" +
+		"00000000000000000000" +
+		"00000000000000000000" +
+		"00000000000000000000" +
+		"00000000000000000000" +
+		"00000000000000000000" +
+		"00000000000000000000")
+	err := Unmarshal(emptyIndex, &f)
+	if err == nil {
+		t.Fatalf("expected to fail with %q but succeeded", errIndexTooSmall)
+	}
+	if err != errIndexTooSmall {
+		t.Fatalf("expected to fail with %q but failed with %v", errIndexTooSmall, err)
+	}
+}
