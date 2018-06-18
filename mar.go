@@ -18,10 +18,12 @@ const (
 	// to the beginning of the file
 	OffsetToIndexLen = 4
 
-	// SignaturesHeaderLen is the length of the signatures header
-	// The signature header contains the total size of the MAR file on 8 bytes
-	// and the number of signatures in the file on 4 bytes
-	SignaturesHeaderLen = 12
+	// FileSizeLen is a uint64 that contains the total size of the MAR in bytes
+	FileSizeLen = 8
+
+	// SignaturesHeaderLen is the length of the signatures header that
+	// contains the number of signatures in the MAR
+	SignaturesHeaderLen = 4
 
 	// SignatureEntryHeaderLen is the length of the header of each signature entry
 	// Each signature entry contains an algorithm and a size, each on 4 bytes
@@ -54,6 +56,7 @@ const (
 type File struct {
 	MarID                    string                   `json:"mar_id" yaml:"mar_id"`
 	OffsetToIndex            uint32                   `json:"offset_to_index" yaml:"offset_to_index"`
+	Size                     uint64                   `json:"size" yaml:"size"`
 	ProductInformation       string                   `json:"product_information,omitempty" yaml:"product_information,omitempty"`
 	SignaturesHeader         SignaturesHeader         `json:"signature_header" yaml:"signature_header"`
 	Signatures               []Signature              `json:"signatures" yaml:"signatures"`
@@ -62,16 +65,15 @@ type File struct {
 	IndexHeader              IndexHeader              `json:"index_header" yaml:"index_header"`
 	Index                    []IndexEntry             `json:"index" yaml:"index"`
 	Content                  map[string]Entry         `json:"-" yaml:"-"`
+	Revision                 int                      `json:"revision" yaml:"revision"`
 
 	// marshalForSignature is used to tell the marshaller to exclude
 	// signature data when preparing a file for signing
 	marshalForSignature bool
 }
 
-// SignaturesHeader contains the total file size and number of signatures in the MAR file
+// SignaturesHeader contains the number of signatures in the MAR file
 type SignaturesHeader struct {
-	// FileSize is the total size of the MAR file in bytes
-	FileSize uint64 `json:"file_size" yaml:"file_size"`
 	// NumSignatures is the count of signatures
 	NumSignatures uint32 `json:"num_signatures" yaml:"num_signatures"`
 }
@@ -159,17 +161,49 @@ type IndexEntryHeader struct {
 // New returns an initialized MAR data structure
 func New() *File {
 	return &File{
-		MarID:   "MAR1",
-		Content: make(map[string]Entry),
+		MarID:    "MAR1",
+		Content:  make(map[string]Entry),
+		Revision: 2012,
 	}
 }
 
-// Unmarshal takes an unparsed MAR file as input and parses it into a File struct
+// Unmarshal takes an unparsed MAR file as input and parses it into a File struct.
+// The MAR format is described at https://wiki.mozilla.org/Software_Update:MAR
+// but don't believe everything it says, because the format has changed over the
+// years to support more fields, and of course the MarID has not changed since.
+// There's a bit of magic in this function to detect which version of a MAR we're
+// dealing with, and store that in the Revision field of the file. 2005 is an old
+// MAR, 2012 is a current one with signatures and additional sections.
 func Unmarshal(input []byte, file *File) error {
-	if len(input) < limitMinFileSize {
-		return fmt.Errorf("input is smaller than minimum MAR size and cannot be parsed")
+	switch file.Size = uint64(len(input)); {
+	case file.Size < limitMinFileSize:
+		debugPrint("input=%d < limit=%d\n", file.Size, limitMinFileSize)
+		return errTooSmall
+	case file.Size > limitMaxFileSize:
+		debugPrint("input=%d > limit=%d\n", file.Size, limitMaxFileSize)
+		return errTooBig
 	}
+
 	p := newParser(input)
+
+	//  A modern MAR is composed of the following fields, in bytes:
+	//  0                   1
+	//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
+	// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+...............
+	// | MAR ID| Offset|Total FileSize |Signatures|Add.Section|Content|Index
+	// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+...............
+	//
+	// except if we're dealing with an old MAR, in which case it's
+	//  0                   1
+	//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4
+	// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+.................
+	// | MAR ID| Offset|...Content...|IdxSize|[Idx Entries]
+	// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+.................
+	//
+	// We need to detect which type of MAR we're dealing with, so first
+	// we parse the MarID and Offset, then we jump to the first index
+	// entry to see if its offset to content starts right after the header,
+	// in which case we're dealing with an old MAR, otherwise it's a new one.
 
 	// Parse the MAR ID
 	marid := make([]byte, MarIDLen, MarIDLen)
@@ -188,33 +222,90 @@ func Unmarshal(input []byte, file *File) error {
 		return fmt.Errorf("offset parsing failed: %v", err)
 	}
 
-	// Parse the Signature header
-	err = p.parse(&file.SignaturesHeader, SignaturesHeaderLen)
-	if err != nil {
-		return fmt.Errorf("signature header parsing failed: %v", err)
-	}
-
-	// Jump to the index header to parse it.
-	// We do that do get the index size and check that the total file size
-	// matches the filesize in the signature header
-	// This provides an extra sanity check to make sure we're not about to
-	// parse a malform MAR file with a size large enough to boil the oceans
-	// (because filesize is a uint64, for some reason...)
-	savedCursor := p.cursor
+	// parse the index
 	p.cursor = uint64(file.OffsetToIndex)
 	err = p.parse(&file.IndexHeader, IndexHeaderLen)
 	if err != nil {
 		return fmt.Errorf("index header parsing failed: %v", err)
 	}
-	if file.SignaturesHeader.FileSize != uint64(file.OffsetToIndex+file.IndexHeader.Size+IndexHeaderLen) {
-		return errMalformedFileSize
+	if file.IndexHeader.Size < IndexEntryHeaderLen {
+		return errIndexTooSmall
 	}
-	if file.SignaturesHeader.FileSize > limitMaxFileSize {
-		return errTooBig
+
+	for i := 0; ; i++ {
+		var (
+			idxEntryHeader IndexEntryHeader
+			idxEntry       IndexEntry
+		)
+		// don't read beyond the end of the file
+		if uint64(p.cursor) >= file.Size {
+			break
+		}
+		err = p.parse(&idxEntryHeader, IndexEntryHeaderLen)
+		if err != nil {
+			return fmt.Errorf("index entry parsing failed: %v", err)
+		}
+
+		idxEntry.Size = idxEntryHeader.Size
+		idxEntry.Flags = idxEntryHeader.Flags
+		idxEntry.OffsetToContent = idxEntryHeader.OffsetToContent
+		if uint64(idxEntry.OffsetToContent+idxEntry.Size) > file.Size {
+			return errMalformedContentOverrun
+		}
+
+		endNamePos := bytes.Index(input[p.cursor:], []byte("\x00"))
+
+		// apply some sanity checking on filenames.
+		// they shouldn't be longer than 1024 characters, and their length
+		// can't overrun the size of the input
+		if endNamePos < 0 {
+			return errMalformedIndexFileName
+		}
+		if endNamePos > limitFileNameLength {
+			return errIndexFileNameTooBig
+		}
+		if (p.cursor + uint64(endNamePos)) > file.Size {
+			return errIndexFileNameOverrun
+
+		}
+		idxEntry.FileName = string(input[p.cursor : p.cursor+uint64(endNamePos)])
+
+		// manually move the cursor to the end of the filename
+		p.cursor = p.cursor + uint64(endNamePos) + 1
+
+		file.Index = append(file.Index, idxEntry)
+	}
+
+	// evaluate the first index entry and if the offset to content is set to byte 8,
+	// we have an old MAR that has no signature or additional sections
+	if file.Index[0].OffsetToContent == MarIDLen+OffsetToIndexLen {
+		file.Revision = 2005
+		// use the input len as a file size since we don't have one in the headers
+		file.Size = uint64(len(input))
+		// skip the signature and additonal section parsing, we have none
+		goto parseContent
 	}
 
 	// go back to the beginning of the signatures block
-	p.cursor = savedCursor
+	p.cursor = MarIDLen + OffsetToIndexLen
+	file.Revision = 2012
+
+	// Parse the total file size header
+	err = p.parse(&file.Size, FileSizeLen)
+	if err != nil {
+		return fmt.Errorf("total file size header parsing failed: %v", err)
+	}
+	// make sure the file size is consistent with the offsets and index len
+	if file.Size != uint64(file.OffsetToIndex+file.IndexHeader.Size+IndexHeaderLen) {
+		debugPrint("filesize=%d; offset to index=%d; index size=%d\n",
+			file.Size, file.OffsetToIndex, file.IndexHeader.Size)
+		return errMalformedFileSize
+	}
+	// Parse the signatures header
+	err = p.parse(&file.SignaturesHeader, SignaturesHeaderLen)
+	if err != nil {
+		return fmt.Errorf("total file size header parsing failed: %v", err)
+	}
 
 	// Parse each signature and append them to the File
 	for i := uint32(0); i < file.SignaturesHeader.NumSignatures; i++ {
@@ -286,53 +377,8 @@ func Unmarshal(input []byte, file *File) error {
 		file.AdditionalSections = append(file.AdditionalSections, as)
 	}
 
-	// parse the index
-	p.cursor = uint64(file.OffsetToIndex + IndexHeaderLen)
-	for i := 0; ; i++ {
-		var (
-			idxEntryHeader IndexEntryHeader
-			idxEntry       IndexEntry
-		)
-		// don't read beyond the end of the file
-		if uint64(p.cursor) >= file.SignaturesHeader.FileSize {
-			break
-		}
-		err = p.parse(&idxEntryHeader, IndexEntryHeaderLen)
-		if err != nil {
-			return fmt.Errorf("index entry parsing failed: %v", err)
-		}
-
-		idxEntry.Size = idxEntryHeader.Size
-		idxEntry.Flags = idxEntryHeader.Flags
-		idxEntry.OffsetToContent = idxEntryHeader.OffsetToContent
-		if uint64(idxEntry.OffsetToContent+idxEntry.Size) > file.SignaturesHeader.FileSize {
-			return errMalformedContentOverrun
-		}
-
-		endNamePos := bytes.Index(input[p.cursor:], []byte("\x00"))
-
-		// apply some sanity checking on filenames.
-		// they shouldn't be longer than 1024 characters, and their length
-		// can't overrun the size of the input
-		if endNamePos < 0 {
-			return errMalformedIndexFileName
-		}
-		if endNamePos > limitFileNameLength {
-			return errIndexFileNameTooBig
-		}
-		if (p.cursor + uint64(endNamePos)) > file.SignaturesHeader.FileSize {
-			return errIndexFileNameOverrun
-
-		}
-		idxEntry.FileName = string(input[p.cursor : p.cursor+uint64(endNamePos)])
-
-		// manually move the cursor to the end of the filename
-		p.cursor = p.cursor + uint64(endNamePos) + 1
-
-		file.Index = append(file.Index, idxEntry)
-	}
-
 	// parse the content
+parseContent:
 	file.Content = make(map[string]Entry)
 	for _, idxEntry := range file.Index {
 		var entry Entry
@@ -379,8 +425,11 @@ func (file *File) Marshal() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	err = binary.Write(buf, binary.BigEndian, file.OffsetToIndex)
+	if err != nil {
+		return nil, err
+	}
+	err = binary.Write(buf, binary.BigEndian, file.Size)
 	if err != nil {
 		return nil, err
 	}
@@ -388,8 +437,8 @@ func (file *File) Marshal() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// start the cursor after the first 3 headers
-	offsetToContent = MarIDLen + OffsetToIndexLen + SignaturesHeaderLen
+	// start the cursor after the headers
+	offsetToContent = MarIDLen + OffsetToIndexLen + FileSizeLen + SignaturesHeaderLen
 
 	// Write the signatures
 	for _, sig := range file.Signatures {
@@ -496,9 +545,9 @@ func (file *File) Marshal() ([]byte, error) {
 	// this is basically the size of both the main and index buffer, but also the
 	// size of any future signatures if we're marshalling for signature (otherwise
 	// sigSizes is zero because the signature data is already in buf)
-	file.SignaturesHeader.FileSize = uint64(buf.Len() + finalIdxBuf.Len() + sigSizes)
+	file.Size = uint64(buf.Len() + finalIdxBuf.Len() + sigSizes)
 	fsizeBuf := new(bytes.Buffer)
-	err = binary.Write(fsizeBuf, binary.BigEndian, file.SignaturesHeader.FileSize)
+	err = binary.Write(fsizeBuf, binary.BigEndian, file.Size)
 	if err != nil {
 		return nil, err
 	}

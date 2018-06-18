@@ -26,6 +26,23 @@ func TestUnmarshal(t *testing.T) {
 	}
 }
 
+func TestUnmarshalOldMar(t *testing.T) {
+	var m File
+	err := Unmarshal(oldMarB, &m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.MarID != "MAR1" {
+		t.Fatalf("Expected to find MarID 'MAR1' but found %q instead", m.MarID)
+	}
+	if m.Revision != 2005 {
+		t.Fatalf("Expected to find revision set to 2005 but found %d instead", m.Revision)
+	}
+	if uint64(len(oldMarB)) != m.Size {
+		t.Fatalf("Expected to find size of %d but found %d instead", uint64(len(oldMarB)), m.Size)
+	}
+}
+
 func TestMarshalUnmarshal(t *testing.T) {
 	m := New()
 	m.AddContent([]byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "/foo/bar", 0600)
