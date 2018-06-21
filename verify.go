@@ -4,15 +4,43 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
-	"crypto/sha1"
-	"crypto/sha256"
-	"crypto/sha512"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"hash"
 	"math/big"
 )
+
+// VerifySignature takes a signed block, a signature, an algorithm id and a public key and returns
+// nil if the signature verifies, or an error if it does not
+func VerifySignature(input []byte, signature []byte, sigalg uint32, key crypto.PublicKey) error {
+	digest, hashAlg, err := Hash(input, sigalg)
+	if err != nil {
+		return err
+	}
+	return VerifyHashSignature(signature, digest, hashAlg, key)
+}
+
+// VerifyHashSignature takes a signature, the digest of a signed MAR block, a hash algorithm and a public
+// key and return nil if a valid signature is found, or an error if it isn't
+func VerifyHashSignature(signature []byte, digest []byte, hashAlg crypto.Hash, key crypto.PublicKey) error {
+	switch key.(type) {
+	case *rsa.PublicKey:
+		err := rsa.VerifyPKCS1v15(key.(*rsa.PublicKey), hashAlg, digest, signature)
+		if err == nil {
+			return nil
+		}
+	case *ecdsa.PublicKey:
+		r, s := new(big.Int), new(big.Int)
+		r.SetBytes(signature[:len(signature)/2])
+		s.SetBytes(signature[len(signature)/2:])
+		if ecdsa.Verify(key.(*ecdsa.PublicKey), digest, r, s) {
+			return nil
+		}
+	default:
+		return fmt.Errorf("unknown public key type %T", key)
+	}
+	return fmt.Errorf("invalid signature")
+}
 
 // VerifySignature attempts to verify signatures in the MAR file using
 // the provided public key until one of them passes. A valid signature
@@ -23,49 +51,10 @@ func (file *File) VerifySignature(key crypto.PublicKey) error {
 		return err
 	}
 	for _, sig := range file.Signatures {
-		switch key.(type) {
-		case *rsa.PublicKey:
-			switch sig.AlgorithmID {
-			case SigAlgRsaPkcs1Sha1:
-				hashed := sha1.Sum(signedBlock)
-				err = rsa.VerifyPKCS1v15(key.(*rsa.PublicKey), crypto.SHA1, hashed[:], sig.Data)
-				if err == nil {
-					// signature is valid, return
-					debugPrint("found valid %s signature\n", sig.Algorithm)
-					return nil
-				}
-			case SigAlgRsaPkcs1Sha384:
-				hashed := sha512.Sum384(signedBlock)
-				err = rsa.VerifyPKCS1v15(key.(*rsa.PublicKey), crypto.SHA384, hashed[:], sig.Data)
-				if err == nil {
-					debugPrint("found valid %s signature\n", sig.Algorithm)
-					return nil
-				}
-			default:
-				// ignore other signature types that may be using a non-rsa key
-				continue
-			}
-		case *ecdsa.PublicKey:
-			var md hash.Hash
-			switch sig.AlgorithmID {
-			case SigAlgEcdsaP256Sha256:
-				md = sha256.New()
-			case SigAlgEcdsaP384Sha384:
-				md = sha512.New384()
-			default:
-				// ignore other signature types that may be using a non-rsa key
-				continue
-			}
-			md.Write(signedBlock)
-			r, s := new(big.Int), new(big.Int)
-			r.SetBytes(sig.Data[:len(sig.Data)/2])
-			s.SetBytes(sig.Data[len(sig.Data)/2:])
-			if ecdsa.Verify(key.(*ecdsa.PublicKey), md.Sum(nil), r, s) {
-				debugPrint("found valid %s signature\n", sig.Algorithm)
-				return nil
-			}
-		default:
-			return fmt.Errorf("unknown public key type")
+		err = VerifySignature(signedBlock, sig.Data, sig.AlgorithmID, key)
+		if err == nil {
+			debugPrint("found valid %s signature\n", sig.Algorithm)
+			return nil
 		}
 	}
 	return fmt.Errorf("no valid signature found")

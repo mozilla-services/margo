@@ -11,7 +11,9 @@ import (
 	"crypto/sha512"
 	"encoding/asn1"
 	"encoding/base64"
+	"fmt"
 	"hash"
+	"io"
 	"math"
 	"math/big"
 )
@@ -34,7 +36,7 @@ const (
 // PrepareSignature adds a new signature header to a MAR file
 // but does not sign yet. You have to call FinalizeSignature
 // to actually sign the MAR file.
-func (file *File) PrepareSignature(key crypto.PrivateKey, pubkey crypto.PublicKey) {
+func (file *File) PrepareSignature(key crypto.PrivateKey, pubkey crypto.PublicKey) error {
 	var sig Signature
 	switch pubkey.(type) {
 	case *rsa.PublicKey:
@@ -46,15 +48,15 @@ func (file *File) PrepareSignature(key crypto.PrivateKey, pubkey crypto.PublicKe
 	case *ecdsa.PublicKey:
 		sig.AlgorithmID, sig.Size = getEcdsaInfo(pubkey.(*ecdsa.PublicKey).Params().Name)
 		if sig.AlgorithmID == 0 || sig.Size == 0 {
-			panic("unsupported key type")
+			return fmt.Errorf("invalid ecdsa algorithm id %d size %d", sig.AlgorithmID, sig.Size)
 		}
 	default:
-		panic("unsupported key type")
+		return fmt.Errorf("unsupported key type %T", pubkey)
 	}
 	sig.privateKey = key
 	file.Signatures = append(file.Signatures, sig)
 	file.SignaturesHeader.NumSignatures++
-	return
+	return nil
 }
 
 // FinalizeSignatures calculates RSA signatures on a MAR file
@@ -64,44 +66,16 @@ func (file *File) FinalizeSignatures() error {
 	if err != nil {
 		return err
 	}
+	if len(file.Signatures) == 0 {
+		return fmt.Errorf("there are no signature to finalize")
+	}
 	for i := range file.Signatures {
-		// hash the signature block using the appropriate algorithm
-		var md hash.Hash
-		h := crypto.SHA384
-		switch file.Signatures[i].AlgorithmID {
-		case SigAlgRsaPkcs1Sha1:
-			md = sha1.New()
-			h = crypto.SHA1
-		case SigAlgEcdsaP256Sha256:
-			md = sha256.New()
-			h = crypto.SHA256
-		case SigAlgRsaPkcs1Sha384, SigAlgEcdsaP384Sha384:
-			md = sha512.New384()
-		}
-		md.Write(signableBlock)
-
-		// call the signer interface of the private key to sign the hash
-		sigData, err := file.Signatures[i].privateKey.(crypto.Signer).Sign(
-			rand.Reader, md.Sum(nil), h)
+		hashed, hashAlg, err := Hash(signableBlock, file.Signatures[i].AlgorithmID)
+		sigData, err := Sign(file.Signatures[i].privateKey, rand.Reader, hashed, hashAlg)
 		if err != nil {
 			return err
 		}
-
-		// write the signature into the mar file
-		switch file.Signatures[i].privateKey.(type) {
-		case *ecdsa.PrivateKey:
-			// when using an ecdsa key, the Sign() interface returns an ASN.1 encoded signature
-			// which we need to parse and convert to its R||S form
-			sigData, err := convertAsn1EcdsaToRS(sigData, int(file.Signatures[i].Size))
-			if err != nil {
-				return err
-			}
-			file.Signatures[i].Data = append(file.Signatures[i].Data, sigData...)
-		case *rsa.PrivateKey:
-			// when using an rsa key, the Sign() interface returns a PKCS1 v1.5 signature that
-			// we directly insert into the MAR file.
-			file.Signatures[i].Data = append(file.Signatures[i].Data, sigData...)
-		}
+		file.Signatures[i].Data = append(file.Signatures[i].Data, sigData...)
 	}
 	return nil
 }
@@ -110,6 +84,46 @@ func (file *File) FinalizeSignatures() error {
 func (file *File) MarshalForSignature() ([]byte, error) {
 	file.marshalForSignature = true
 	return file.Marshal()
+}
+
+// Hash takes an input and a signature algorithm and returns its hashed value
+func Hash(input []byte, sigalg uint32) (output []byte, h crypto.Hash, err error) {
+	// hash the signature block using the appropriate algorithm
+	var md hash.Hash
+	switch sigalg {
+	case SigAlgRsaPkcs1Sha1:
+		md = sha1.New()
+		h = crypto.SHA1
+	case SigAlgEcdsaP256Sha256:
+		md = sha256.New()
+		h = crypto.SHA256
+	case SigAlgRsaPkcs1Sha384, SigAlgEcdsaP384Sha384:
+		md = sha512.New384()
+		h = crypto.SHA384
+	default:
+		return nil, h, fmt.Errorf("unsupported signature algorithm")
+	}
+	md.Write(input)
+	return md.Sum(nil), h, nil
+}
+
+// Sign signs digest with the private key, possibly using entropy from rand
+func Sign(key crypto.PrivateKey, rand io.Reader, digest []byte, h crypto.Hash) (sigData []byte, err error) {
+	// call the signer interface of the private key to sign the hash
+	sigData, err = key.(crypto.Signer).Sign(rand, digest, h)
+	if err != nil {
+		return nil, err
+	}
+	switch key.(type) {
+	case *ecdsa.PrivateKey:
+		// when using an ecdsa key, the Sign() interface returns an ASN.1 encoded signature
+		// which we need to parse and convert to its R||S form
+		_, size := getEcdsaInfo(key.(*ecdsa.PrivateKey).Params().Name)
+		return convertAsn1EcdsaToRS(sigData, int(size))
+	case *rsa.PrivateKey:
+		return sigData, nil
+	}
+	return nil, fmt.Errorf("unsupported key type %T", key)
 }
 
 type ecdsaSignature struct {
