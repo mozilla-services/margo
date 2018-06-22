@@ -21,7 +21,7 @@ func VerifySignature(input []byte, signature []byte, sigalg uint32, key crypto.P
 }
 
 // VerifyHashSignature takes a signature, the digest of a signed MAR block, a hash algorithm and a public
-// key and return nil if a valid signature is found, or an error if it isn't
+// key and returns nil if a valid signature is found, or an error if it isn't
 func VerifyHashSignature(signature []byte, digest []byte, hashAlg crypto.Hash, key crypto.PublicKey) error {
 	switch key.(type) {
 	case *rsa.PublicKey:
