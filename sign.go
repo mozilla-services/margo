@@ -70,11 +70,11 @@ func (file *File) FinalizeSignatures() error {
 		return fmt.Errorf("there are no signatures to finalize")
 	}
 	for i := range file.Signatures {
-		hashed, hashAlg, err := Hash(signableBlock, file.Signatures[i].AlgorithmID)
+		hashed, _, err := Hash(signableBlock, file.Signatures[i].AlgorithmID)
 		if err != nil {
 			return err
 		}
-		sigData, err := Sign(file.Signatures[i].privateKey, rand.Reader, hashed, hashAlg)
+		sigData, err := Sign(file.Signatures[i].privateKey, rand.Reader, hashed, file.Signatures[i].AlgorithmID)
 		if err != nil {
 			return err
 		}
@@ -111,23 +111,40 @@ func Hash(input []byte, sigalg uint32) (output []byte, h crypto.Hash, err error)
 }
 
 // Sign signs digest with the private key, possibly using entropy from rand
-func Sign(key crypto.PrivateKey, rand io.Reader, digest []byte, h crypto.Hash) (sigData []byte, err error) {
+func Sign(key crypto.PrivateKey, rand io.Reader, digest []byte, sigalg uint32) (sigData []byte, err error) {
 	if _, ok := key.(crypto.Signer); !ok {
 		return nil, fmt.Errorf("private key of type %T does not implement the Signer interface", key)
+	}
+	var h crypto.Hash
+	var sigsize uint32
+	switch sigalg {
+	case SigAlgRsaPkcs1Sha1:
+		h = crypto.SHA1
+	case SigAlgEcdsaP256Sha256:
+		_, sigsize = getEcdsaInfo(elliptic.P256().Params().Name)
+		h = crypto.SHA256
+	case SigAlgRsaPkcs1Sha384, SigAlgEcdsaP384Sha384:
+		_, sigsize = getEcdsaInfo(elliptic.P384().Params().Name)
+		h = crypto.SHA384
+	default:
+		return nil, fmt.Errorf("unsupported signature algorithm")
 	}
 	// call the signer interface of the private key to sign the hash
 	sigData, err = key.(crypto.Signer).Sign(rand, digest, h)
 	if err != nil {
 		return nil, err
 	}
-	switch key.(type) {
-	case *ecdsa.PrivateKey:
+	switch sigalg {
+	case SigAlgRsaPkcs1Sha1, SigAlgRsaPkcs1Sha384:
+		// Signature is already in the PKCSv1_15 format so return it as is
+		return sigData, nil
+	case SigAlgEcdsaP256Sha256, SigAlgEcdsaP384Sha384:
 		// when using an ecdsa key, the Sign() interface returns an ASN.1 encoded signature
 		// which we need to parse and convert to its R||S form
-		_, size := getEcdsaInfo(key.(*ecdsa.PrivateKey).Params().Name)
-		return convertAsn1EcdsaToRS(sigData, int(size))
-	case *rsa.PrivateKey:
-		return sigData, nil
+		if int(sigsize) < 64 {
+			return nil, fmt.Errorf("signature size of %d is too small for signature data", sigsize)
+		}
+		return convertAsn1EcdsaToRS(sigData, int(sigsize))
 	}
 	return nil, fmt.Errorf("unsupported key type %T", key)
 }
