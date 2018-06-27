@@ -15,26 +15,26 @@ func TestDosByLargeFile(t *testing.T) {
 	dosMar := File{
 		MarID: "MAR1",
 		Content: map[string]Entry{
-			"/foo/bar": Entry{
+			"/foo/bar": {
 				Data: []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
 			},
 		},
 		Index: []IndexEntry{
-			IndexEntry{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
-			IndexEntry{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
-			IndexEntry{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
-			IndexEntry{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
-			IndexEntry{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
-			IndexEntry{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
-			IndexEntry{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
-			IndexEntry{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
-			IndexEntry{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
-			IndexEntry{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
-			IndexEntry{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
-			IndexEntry{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
-			IndexEntry{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
-			IndexEntry{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
-			IndexEntry{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
+			{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
+			{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
+			{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
+			{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
+			{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
+			{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
+			{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
+			{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
+			{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
+			{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
+			{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
+			{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
+			{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
+			{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
+			{IndexEntryHeader{Flags: 0640}, "/foo/bar"},
 		},
 	}
 	o, err := dosMar.Marshal()
@@ -55,12 +55,12 @@ func TestBadIndexReference(t *testing.T) {
 	dosMar := File{
 		MarID: "MAR1",
 		Content: map[string]Entry{
-			"/foo/bar": Entry{
+			"/foo/bar": {
 				Data: []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
 			},
 		},
 		Index: []IndexEntry{
-			IndexEntry{IndexEntryHeader{Flags: 0640}, "/does/not/exist"},
+			{IndexEntryHeader{Flags: 0640}, "/does/not/exist"},
 		},
 	}
 	_, err := dosMar.Marshal()
