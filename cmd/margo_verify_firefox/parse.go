@@ -12,6 +12,10 @@ import (
 )
 
 func main() {
+	if len(os.Args) < 2 {
+		fmt.Printf("usage: %s <file> [json]\nParse and Verify the signature of a Firefox MAR.\nIf json is set as 2nd arg, dump the MAR as JSON too.\n", os.Args[0])
+		os.Exit(1)
+	}
 	var file mar.File
 	input, err := ioutil.ReadFile(os.Args[1])
 	if err != nil {
@@ -34,6 +38,7 @@ func main() {
 			file.ProductInformation, file.Revision)
 	}
 	if file.Revision < 2012 {
+		fmt.Printf("MAR format precedes 2012 and does not support signatures.")
 		os.Exit(0)
 	}
 	validKeys, isSigned, err := file.VerifyWithFirefoxKeys()
