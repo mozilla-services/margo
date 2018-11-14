@@ -32,25 +32,57 @@ const (
 	SigAlgEcdsaP384Sha384 = 4
 )
 
+// Signature output sizes in bytes
+const (
+	// SigAlgRsaPkcs1Sha1 is the size of a signature of type RSA-PKCS1-SHA1
+	SigAlgRsaPkcs1Sha1Size = 256
+
+	// SigAlgRsaPkcs1Sha384 is the size of a signature of type RSA-PKCS1-SHA384
+	SigAlgRsaPkcs1Sha384Size = 512
+
+	// SigAlgEcdsaP256Sha256 is the size of a signature of type ECDSA on NIST curve P256 with SHA256
+	SigAlgEcdsaP256Sha256Size = 64
+
+	// SigAlgEcdsaP384Sha384 is the size of a signature of type ECDSA on NIST curve P384 with SHA384
+	SigAlgEcdsaP384Sha384Size = 96
+)
+
 // PrepareSignature adds a new signature header to a MAR file
 // but does not sign yet. You have to call FinalizeSignature
 // to actually sign the MAR file.
 func (file *File) PrepareSignature(key crypto.PrivateKey, pubkey crypto.PublicKey) error {
 	var sig Signature
-	switch pubkey.(type) {
+ 	// switch pkey := pubkey.(type) {
+ 	switch pubkey.(type) {
 	case *rsa.PublicKey:
 		sig.AlgorithmID = SigAlgRsaPkcs1Sha384
-		// accept keys that aren't multiples of 8 and round them up to end up with the correct
-		// byte size. eg. 2047/8 = 255.875 = 256
-		sig.Size = uint32(pubkey.(*rsa.PublicKey).Size())
-		debugPrint("rsa bit len: %d\n", sig.Size)
+		sig.Size = 512
+		// rsaKey, ok := key.(*rsa.PrivateKey)
+		// if !ok {
+		// 	return fmt.Errorf("RSA pubkey with non-RSA type private key of type %T\n", key)
+		// }
+		// rsaPubKeyFromPrivate, ok := rsaKey.Public().(*rsa.PublicKey)
+		// if !ok {
+		// 	return fmt.Errorf("RSA private key .Public resolves to non-RSA public key of type %T\n", rsaPubKeyFromPrivate)
+		// }
+
+		// rsaPubKeyFromPrivateSize, pKeySize := uint32(rsaPubKeyFromPrivate.Size()), uint32(pkey.Size())
+		// if rsaPubKeyFromPrivateSize != pKeySize {
+		// 	return fmt.Errorf("RSA pubkey size %d does not match private key size %d\n", pKeySize, rsaPubKeyFromPrivateSize)
+		// }
+		// if rsaPubKeyFromPrivateSize != sig.Size {
+		// 	return fmt.Errorf("RSA private key size %d does not match expected key size %d\n", rsaPubKeyFromPrivateSize, sig.Size)
+		// }
+		// if pKeySize != sig.Size {
+		// 	return fmt.Errorf("RSA pubkey size %d does not match expected key size %d\n", pKeySize, sig.Size)
+		// }
 	case *ecdsa.PublicKey:
 		sig.AlgorithmID, sig.Size = getEcdsaInfo(pubkey.(*ecdsa.PublicKey).Params().Name)
 		if sig.AlgorithmID == 0 || sig.Size == 0 {
 			return fmt.Errorf("invalid ecdsa algorithm id %d size %d", sig.AlgorithmID, sig.Size)
 		}
 	default:
-		return fmt.Errorf("unsupported key type %T", pubkey)
+		return fmt.Errorf("unsupported private key type %T", key)
 	}
 	sig.privateKey = key
 	file.Signatures = append(file.Signatures, sig)
@@ -69,15 +101,22 @@ func (file *File) FinalizeSignatures() error {
 		return fmt.Errorf("there are no signatures to finalize")
 	}
 	for i := range file.Signatures {
-		hashed, _, err := Hash(signableBlock, file.Signatures[i].AlgorithmID)
+		sig := file.Signatures[i]
+		hashed, _, err := Hash(signableBlock, sig.AlgorithmID)
 		if err != nil {
 			return err
 		}
-		sigData, err := Sign(file.Signatures[i].privateKey, rand.Reader, hashed, file.Signatures[i].AlgorithmID)
+		sigData, err := Sign(sig.privateKey, rand.Reader, hashed, sig.AlgorithmID)
 		if err != nil {
 			return err
 		}
-		file.Signatures[i].Data = append(file.Signatures[i].Data, sigData...)
+		hashedSize, size, expectedSize := len(hashed), len(sigData), int(getSigSizeFromID(int(sig.AlgorithmID)))
+		debugPrint("Got unexpected signature size %d expected %d bytes for alg ID %d %T %d", size, expectedSize, sig.AlgorithmID, sigData, hashedSize)
+		if size != expectedSize {
+			return fmt.Errorf("Got unexpected signature size %d expected %d bytes for alg ID %d %T %d",
+				size, expectedSize, sig.AlgorithmID, sigData, hashedSize)
+		}
+		file.Signatures[i].Data = append(sig.Data, sigData...)
 	}
 	return nil
 }
@@ -124,12 +163,16 @@ func Sign(key crypto.PrivateKey, rand io.Reader, digest []byte, sigalg uint32) (
 		h = crypto.SHA256
 	case SigAlgRsaPkcs1Sha384, SigAlgEcdsaP384Sha384:
 		_, sigsize = getEcdsaInfo(elliptic.P384().Params().Name)
+		if sigsize == 0 {
+
+		}
 		h = crypto.SHA384
 	default:
 		return nil, fmt.Errorf("unsupported signature algorithm")
 	}
 	// call the signer interface of the private key to sign the hash
 	sigData, err = key.(crypto.Signer).Sign(rand, digest, h)
+	debugPrint("sigData len %d for alg ID: %d", len(sigData), sigalg)
 	if err != nil {
 		return nil, err
 	}
@@ -172,12 +215,16 @@ func convertAsn1EcdsaToRS(sigData []byte, sigLen int) ([]byte, error) {
 	return rs, nil
 }
 
+func isRSAAlgID(algID uint32) bool {
+	return algID == SigAlgRsaPkcs1Sha1 || algID == SigAlgRsaPkcs1Sha384
+}
+
 func getEcdsaInfo(curve string) (uint32, uint32) {
 	switch curve {
 	case elliptic.P256().Params().Name:
-		return SigAlgEcdsaP256Sha256, 64
+		return SigAlgEcdsaP256Sha256, getSigSizeFromID(SigAlgEcdsaP256Sha256)
 	case elliptic.P384().Params().Name:
-		return SigAlgEcdsaP384Sha384, 96
+		return SigAlgEcdsaP384Sha384, getSigSizeFromID(SigAlgEcdsaP384Sha384)
 	default:
 		return 0, 0
 	}
@@ -195,4 +242,18 @@ func getSigAlgNameFromID(id uint32) string {
 		return "ECDSA-P384-SHA384"
 	}
 	return "unknown"
+}
+
+func getSigSizeFromID(id int) uint32 {
+	switch id {
+	case SigAlgRsaPkcs1Sha1:
+		return SigAlgRsaPkcs1Sha1Size
+	case SigAlgRsaPkcs1Sha384:
+		return SigAlgRsaPkcs1Sha384Size
+	case SigAlgEcdsaP256Sha256:
+		return SigAlgEcdsaP256Sha256Size
+	case SigAlgEcdsaP384Sha384:
+		return SigAlgEcdsaP384Sha384Size
+	}
+	return 0
 }

@@ -14,7 +14,7 @@ func TestFirefoxKeys(t *testing.T) {
 	testMar.AddContent([]byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "/foo/bar", 0600)
 
 	// add the test rsa key to the list of firefox keys
-	publicKeyDer, err := x509.MarshalPKIXPublicKey(&rsa2048Key.PublicKey)
+	publicKeyDer, err := x509.MarshalPKIXPublicKey(&rsa4096Key.PublicKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,8 +26,14 @@ func TestFirefoxKeys(t *testing.T) {
 	publicKeyPem := string(pem.EncodeToMemory(&publicKeyBlock))
 	FirefoxReleasePublicKeys["unit_test"] = publicKeyPem
 
-	testMar.PrepareSignature(rsa2048Key, rsa2048Key.Public())
+	err = testMar.PrepareSignature(rsa4096Key, rsa4096Key.Public())
+	if err != nil {
+		t.Fatal(err)
+	}
 	testMar.FinalizeSignatures()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	validKeys, isSigned, err := testMar.VerifyWithFirefoxKeys()
 	if err != nil {

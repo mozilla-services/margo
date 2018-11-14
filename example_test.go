@@ -16,11 +16,12 @@ func Example() {
 	marFile.AddContent([]byte("cariboumaurice"), "/foo/bar", 640)
 
 	// make a new rsa key and add it for signature
-	rsaPrivKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	rsaPrivKey, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
 		log.Fatalf("rsa key generation failed with: %v", err)
 	}
 	marFile.PrepareSignature(rsaPrivKey, rsaPrivKey.Public())
+	// marFile.PrepareSignature(rsaPrivKey, mar.SigAlgRsaPkcs1Sha384)
 
 	// make a new ecdsa key and add it for signature
 	ecdsaPrivKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -28,6 +29,7 @@ func Example() {
 		log.Fatalf("ecdsa key generation failed with: %v", err)
 	}
 	marFile.PrepareSignature(ecdsaPrivKey, ecdsaPrivKey.Public())
+	// marFile.PrepareSignature(ecdsaPrivKey, mar.SigAlgEcdsaP256Sha256)
 
 	// once both keys are added to the file, finalize the signature
 	err = marFile.FinalizeSignatures()
