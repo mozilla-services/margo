@@ -1,6 +1,6 @@
 dist: trusty
 language: go
-go: '1.10'
+go: '1.11'
 go_import_path: go.mozilla.org/mar
 before_install:
 - sudo apt-get -y install libnss3-tools
