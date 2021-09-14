@@ -2,7 +2,7 @@
 
 This is a distribution of the `signmar` tool that is part of Firefox and gets
 automatically built with it. This particular version was compiled on ArchLinux
-and runs fine in Ubuntu Trusty (for TravisCI), you just need to set
+and runs fine in Ubuntu latest (for GHA), you just need to set
 LD_LIBRARY_PATH to the `lib` directory for it to find `libmozsqlite`.
 
 Here's how to use it to verify a MAR signature:
